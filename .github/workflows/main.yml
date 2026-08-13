@@ -1,4 +1,4 @@
-name: Deploy Backend 1 "INRFSBE"
+name: Deploy Backend 1 "INRFS BE"
 
 on:
   push:
