@@ -46,7 +46,7 @@ class InvestmentApprove(BaseModel):
     interest_rate: Decimal = Field(
         ...,
         gt=0,
-        le=100
+        le=100,
     )
     remarks: Optional[str] = None
 
@@ -55,14 +55,14 @@ class InvestmentReject(BaseModel):
     remarks: str = Field(
         ...,
         min_length=1,
-        max_length=500
+        max_length=500,
     )
 
 
 class TenureExtensionRequest(BaseModel):
     extension_months: int = Field(
         ...,
-        gt=0
+        gt=0,
     )
     remarks: Optional[str] = None
 
@@ -77,7 +77,7 @@ class PreCloseRequest(BaseModel):
     reason: str = Field(
         ...,
         min_length=1,
-        max_length=500
+        max_length=500,
     )
 
 
@@ -85,3 +85,43 @@ class PreCloseResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
+
+
+class BondData(BaseModel):
+    id: int
+    bond_id: str
+    bond_number: Optional[str] = None
+
+    investment_id: int
+    investment_code: Optional[str] = None
+
+    investor_registration_id: Optional[int] = None
+    investor_id: Optional[str] = None
+
+    investor_name: Optional[str] = None
+    mobile: Optional[str] = None
+    email: Optional[str] = None
+
+    investment_amount: Optional[Decimal] = None
+    amount: Optional[Decimal] = None
+
+    interest_rate: Optional[Decimal] = None
+    rate: Optional[Decimal] = None
+
+    expected_interest_amount: Optional[Decimal] = None
+    maturity_amount: Optional[Decimal] = None
+
+    investment_date: Optional[datetime] = None
+    maturity_date: date
+    issue_date: Optional[datetime] = None
+
+    status: Optional[str] = None
+
+
+class BondResponse(BaseModel):
+    success: bool
+    data: BondData
+
+    model_config = ConfigDict(
+        from_attributes=True
+    )

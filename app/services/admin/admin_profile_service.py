@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-
+from typing import Optional
 from app.models.generated_models import (
     TnApplicationUser,
 )

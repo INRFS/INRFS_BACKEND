@@ -1,17 +1,12 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-)
-from fastapi.security import (
-    HTTPAuthorizationCredentials,
-    HTTPBearer,
-)
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.utils.auth_utils import (
-    decode_access_token,
+
+from app.dependencies import (
+    get_current_user,
+    require_investor,
+    require_admin_or_superadmin,
 )
 
 from app.schemas.investment_schemas import (
@@ -24,6 +19,7 @@ from app.schemas.investment_schemas import (
     TenureExtensionResponse,
     PreCloseRequest,
     PreCloseResponse,
+    BondResponse,
 )
 
 from app.services.investment_service import (
@@ -31,6 +27,7 @@ from app.services.investment_service import (
     create_investment,
     get_my_investments,
     get_my_investment,
+    get_my_investment_bond,
     get_branch_pending_investments,
     approve_investment,
     reject_investment,
@@ -38,69 +35,25 @@ from app.services.investment_service import (
     request_preclose,
 )
 
+
 router = APIRouter(
     prefix="/investments",
     tags=["Investments"],
 )
 
-security = HTTPBearer()
-
-
-def get_current_user(
-    credentials:
-        HTTPAuthorizationCredentials =
-        Depends(security),
-):
-    token = credentials.credentials
-
-    payload = decode_access_token(token)
-
-    if not payload:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token.",
-        )
-
-    return payload
-
-
-def get_current_user_id(
-    current_user: dict =
-        Depends(get_current_user),
-):
-    try:
-        return int(
-            current_user["sub"]
-        )
-    except (
-        KeyError,
-        TypeError,
-        ValueError,
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "Invalid user information "
-                "in token."
-            ),
-        )
-
 
 @router.post(
     "/calculate",
-    response_model=
-        InvestmentCalculationResponse,
+    response_model=InvestmentCalculationResponse,
 )
 def calculate_investment_api(
     data: InvestmentCreate,
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return calculate_investment(
         db=db,
-        investment_amount=
-            data.investment_amount,
+        investment_amount=data.investment_amount,
         tenure_id=data.tenure_id,
     )
 
@@ -112,12 +65,11 @@ def calculate_investment_api(
 def create_investment_api(
     data: InvestmentCreate,
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return create_investment(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         data=data,
     )
 
@@ -128,12 +80,11 @@ def create_investment_api(
 )
 def my_investments_api(
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return get_my_investments(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
     )
 
 
@@ -144,12 +95,27 @@ def my_investments_api(
 def my_investment_api(
     investment_id: int,
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return get_my_investment(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
+        investment_id=investment_id,
+    )
+
+
+@router.get(
+    "/my-investments/{investment_id}/bond",
+    response_model=BondResponse,
+)
+def my_investment_bond_api(
+    investment_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_investor),
+):
+    return get_my_investment_bond(
+        db=db,
+        user_id=current_user.id,
         investment_id=investment_id,
     )
 
@@ -162,15 +128,13 @@ def request_tenure_extension_api(
     investment_id: int,
     data: TenureExtensionRequest,
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return request_tenure_extension(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         investment_id=investment_id,
-        extension_months=
-            data.extension_months,
+        extension_months=data.extension_months,
         remarks=data.remarks,
     )
 
@@ -183,12 +147,11 @@ def request_preclose_api(
     investment_id: int,
     data: PreCloseRequest,
     db: Session = Depends(get_db),
-    user_id: int =
-        Depends(get_current_user_id),
+    current_user=Depends(require_investor),
 ):
     return request_preclose(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         investment_id=investment_id,
         reason=data.reason,
     )
@@ -201,18 +164,8 @@ def request_preclose_api(
 def branch_pending_investments_api(
     branch_id: int,
     db: Session = Depends(get_db),
-    current_user: dict =
-        Depends(get_current_user),
+    current_user=Depends(require_admin_or_superadmin),
 ):
-    if current_user.get("role") not in {
-        "ADMIN",
-        "SUPERADMIN",
-    }:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required.",
-        )
-
     return get_branch_pending_investments(
         db=db,
         branch_id=branch_id,
@@ -227,36 +180,12 @@ def approve_investment_api(
     investment_id: int,
     data: InvestmentApprove,
     db: Session = Depends(get_db),
-    current_user: dict =
-        Depends(get_current_user),
+    current_user=Depends(require_admin_or_superadmin),
 ):
-    if current_user.get("role") not in {
-        "ADMIN",
-        "SUPERADMIN",
-    }:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required.",
-        )
-
-    try:
-        admin_id = int(
-            current_user["sub"]
-        )
-    except (
-        KeyError,
-        TypeError,
-        ValueError,
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid admin information.",
-        )
-
     return approve_investment(
         db=db,
         investment_id=investment_id,
-        admin_id=admin_id,
+        admin_id=current_user.id,
         data=data,
     )
 
@@ -269,35 +198,11 @@ def reject_investment_api(
     investment_id: int,
     data: InvestmentReject,
     db: Session = Depends(get_db),
-    current_user: dict =
-        Depends(get_current_user),
+    current_user=Depends(require_admin_or_superadmin),
 ):
-    if current_user.get("role") not in {
-        "ADMIN",
-        "SUPERADMIN",
-    }:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required.",
-        )
-
-    try:
-        admin_id = int(
-            current_user["sub"]
-        )
-    except (
-        KeyError,
-        TypeError,
-        ValueError,
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid admin information.",
-        )
-
     return reject_investment(
         db=db,
         investment_id=investment_id,
-        admin_id=admin_id,
+        admin_id=current_user.id,
         data=data,
     )

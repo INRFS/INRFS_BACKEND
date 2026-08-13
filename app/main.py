@@ -15,7 +15,11 @@ from app.routes.admin.admin_profile_route import (
     router as admin_profile_router,
 )
 from app.routes.admin.admin_dashboard_route import router as admin_dashboard_router
-from app.routes.admin.report_route import router as report_router
+from app.routes.admin.report_route import (
+    router as admin_report_router,
+)
+
+from app.routes.investment_bond_route import router as report_router
 
 
 app = FastAPI(
@@ -47,7 +51,7 @@ app.include_router(admin_investor_router)
 app.include_router(admin_investment_router)
 app.include_router(admin_profile_router)
 app.include_router(admin_dashboard_router)
-app.include_router(report_router)
+app.include_router(admin_report_router)
 @app.get("/")
 def root():
     return {
