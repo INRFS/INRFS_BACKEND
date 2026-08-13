@@ -52,7 +52,11 @@ def investor_register(
         "investor_id": investor.investor_id,
         "user_id": user.id,
         "full_name": user.full_name,
-        "kyc_status": investor.kyc_status.kyc_status_name,
+        "kyc_status": (
+            investor.kyc_status.kyc_status_name
+            if investor.kyc_status
+            else None
+        ),
     }
 
 
@@ -65,7 +69,11 @@ def investor_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    ip_address = request.client.host if request.client else None
+    ip_address = (
+        request.client.host
+        if request.client
+        else None
+    )
 
     return investor_login(
         db=db,
@@ -134,7 +142,11 @@ def admin_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    ip_address = request.client.host if request.client else None
+    ip_address = (
+        request.client.host
+        if request.client
+        else None
+    )
 
     return admin_login(
         db=db,
@@ -153,7 +165,11 @@ def superadmin_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    ip_address = request.client.host if request.client else None
+    ip_address = (
+        request.client.host
+        if request.client
+        else None
+    )
 
     return superadmin_login(
         db=db,
@@ -170,10 +186,16 @@ def superadmin_login_api(
 def get_current_user_details(
     current_user=Depends(get_current_user),
 ):
-    role_name = current_user.role.role_name
+    role_name = (
+        current_user.role.role_name
+        if current_user.role
+        else ""
+    )
 
     if role_name.upper() == "INVESTOR":
-        investor = current_user.tn_investor_registration_user
+        investor = (
+            current_user.tn_investor_registration_user
+        )
 
         login_id = (
             investor.investor_id
@@ -190,5 +212,7 @@ def get_current_user_details(
         "mobile": current_user.mobile,
         "email": current_user.email,
         "role": role_name,
-        "is_active": current_user.is_active,
+        "is_active": bool(
+            current_user.is_active
+        ),
     }

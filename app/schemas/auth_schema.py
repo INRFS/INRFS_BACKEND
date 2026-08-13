@@ -32,13 +32,13 @@ class StaffRegisterRequest(BaseModel):
 
 
 class AdminLoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class SuperAdminLoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class TokenResponse(BaseModel):
@@ -54,7 +54,7 @@ class UserResponse(BaseModel):
     id: int
     login_id: str
     full_name: str
-    mobile: str
-    email: Optional[str]
+    mobile: Optional[str] = None
+    email: Optional[str] = None
     role: str
     is_active: bool
