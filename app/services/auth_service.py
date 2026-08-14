@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
@@ -60,7 +61,9 @@ def get_active_user_status(
     user_status = (
         db.query(MasterUserStatus)
         .filter(
-            func.upper(MasterUserStatus.status_name)
+            func.upper(
+                MasterUserStatus.status_name
+            )
             == "ACTIVE",
             MasterUserStatus.is_active.is_(True),
         )
@@ -109,8 +112,8 @@ def get_pending_kyc_status(
 def check_existing_user(
     db: Session,
     mobile: str,
-    email: str | None = None,
-    username: str | None = None,
+    email: Optional[str] = None,
+    username: Optional[str] = None,
 ):
     mobile_exists = (
         db.query(TnApplicationUser)
@@ -130,7 +133,9 @@ def check_existing_user(
         email_exists = (
             db.query(TnApplicationUser)
             .filter(
-                func.lower(TnApplicationUser.email)
+                func.lower(
+                    TnApplicationUser.email
+                )
                 == email.lower()
             )
             .first()
@@ -146,7 +151,9 @@ def check_existing_user(
         username_exists = (
             db.query(TnApplicationUser)
             .filter(
-                func.lower(TnApplicationUser.username)
+                func.lower(
+                    TnApplicationUser.username
+                )
                 == username.lower()
             )
             .first()
@@ -204,7 +211,9 @@ def register_investor(
             mobile=data.mobile,
             email=data.email,
             username=None,
-            password=hash_password(data.password),
+            password=hash_password(
+                data.password
+            ),
             failed_login_attempts=0,
             is_active=True,
             created_date=datetime.utcnow(),
@@ -265,14 +274,16 @@ def register_staff(
     db: Session,
     data: StaffRegisterRequest,
     role_name: str,
-    created_by: int | None = None,
+    created_by: Optional[int] = None,
 ):
     try:
+        username = data.username.strip()
+
         check_existing_user(
             db=db,
             mobile=data.mobile,
             email=data.email,
-            username=data.username,
+            username=username,
         )
 
         role = get_role(
@@ -280,16 +291,20 @@ def register_staff(
             role_name,
         )
 
-        user_status = get_active_user_status(db)
+        user_status = get_active_user_status(
+            db
+        )
 
         user = TnApplicationUser(
             role_id=role.id,
             user_status_id=user_status.id,
-            full_name=data.full_name,
-            mobile=data.mobile,
+            full_name=data.full_name.strip(),
+            mobile=data.mobile.strip(),
             email=data.email,
-            username=data.username,
-            password=hash_password(data.password),
+            username=username,
+            password=hash_password(
+                data.password
+            ),
             failed_login_attempts=0,
             is_active=True,
             created_by=created_by,
@@ -297,7 +312,6 @@ def register_staff(
         )
 
         db.add(user)
-
         db.commit()
 
         db.refresh(user)
@@ -324,26 +338,42 @@ def create_login_history(
     db: Session,
     user: TnApplicationUser,
     login_type: str,
-    ip_address: str | None = None,
+    ip_address: Optional[str] = None,
 ):
-    login_history = TnLoginHistory(
-        user_id=user.id,
-        login_date=datetime.utcnow(),
-        login_type=login_type,
-        ip_address=ip_address,
-        created_by=user.id,
-        created_date=datetime.utcnow(),
-    )
+    try:
+        login_history = TnLoginHistory(
+            user_id=user.id,
+            login_date=datetime.utcnow(),
+            login_type=login_type,
+            ip_address=ip_address,
+            created_by=user.id,
+            created_date=datetime.utcnow(),
+        )
 
-    db.add(login_history)
+        db.add(login_history)
+        db.flush()
+
+        return True
+
+    except Exception as exc:
+        print(
+            "LOGIN HISTORY ERROR:",
+            repr(exc),
+        )
+
+        db.rollback()
+
+        return False
 
 
 def investor_login(
     db: Session,
     investor_id: str,
     password: str,
-    ip_address: str | None = None,
+    ip_address: Optional[str] = None,
 ):
+    investor_id = investor_id.strip()
+
     investor = (
         db.query(TnInvestorRegistration)
         .filter(
@@ -382,7 +412,10 @@ def investor_login(
             detail="Investor role is not configured",
         )
 
-    if user.role.role_name.upper() != "INVESTOR":
+    if (
+        user.role.role_name.upper()
+        != "INVESTOR"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid investor account",
@@ -403,11 +436,15 @@ def investor_login(
     if not investor.kyc_status:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Investor approval status is not configured",
+            detail=(
+                "Investor approval status "
+                "is not configured"
+            ),
         )
 
     kyc_status = (
-        investor.kyc_status.kyc_status_name or ""
+        investor.kyc_status.kyc_status_name
+        or ""
     ).strip().upper()
 
     if kyc_status not in (
@@ -442,7 +479,7 @@ def investor_login(
 
     if not user.password:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Password is not configured",
         )
 
@@ -451,15 +488,21 @@ def investor_login(
             password,
             user.password,
         )
-    except Exception:
+    except Exception as exc:
+        print(
+            "INVESTOR PASSWORD ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Password verification failed",
         )
 
     if not password_valid:
         user.failed_login_attempts = (
-            (user.failed_login_attempts or 0) + 1
+            (user.failed_login_attempts or 0)
+            + 1
         )
 
         db.commit()
@@ -472,14 +515,25 @@ def investor_login(
     user.failed_login_attempts = 0
     user.last_login_date = datetime.utcnow()
 
-    create_login_history(
-        db=db,
-        user=user,
-        login_type="INVESTOR",
-        ip_address=ip_address,
-    )
-
     db.commit()
+
+    try:
+        create_login_history(
+            db=db,
+            user=user,
+            login_type="INVESTOR",
+            ip_address=ip_address,
+        )
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+
+        user.failed_login_attempts = 0
+        user.last_login_date = datetime.utcnow()
+
+        db.commit()
 
     token = create_access_token(
         user_id=user.id,
@@ -496,81 +550,88 @@ def investor_login(
         "role": "INVESTOR",
     }
 
-
 def admin_login(
     db: Session,
     username: str,
     password: str,
     ip_address: str | None = None,
 ):
+    print("========== ADMIN LOGIN START ==========")
+
+    username = username.strip()
+
+    print("1. Username:", repr(username))
+
     user = (
         db.query(TnApplicationUser)
-        .join(MasterRole)
+        .join(
+            MasterRole,
+            TnApplicationUser.role_id == MasterRole.id,
+        )
         .filter(
             func.lower(
                 TnApplicationUser.username
-            )
-            == username.lower(),
+            ) == username.lower(),
             func.upper(
                 MasterRole.role_name
-            )
-            == "ADMIN",
+            ) == "ADMIN",
         )
         .first()
     )
 
+    print(
+        "2. User found:",
+        user is not None,
+    )
+
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Invalid admin username or password",
         )
 
+    print("3. User ID:", user.id)
+    print("4. DB username:", user.username)
+    print("5. Role:", user.role.role_name)
+    print("6. Active:", user.is_active)
+
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Admin account is inactive",
         )
 
     if not user.password:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Password is not configured",
         )
 
-    try:
-        password_valid = verify_password(
-            password,
-            user.password,
-        )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Password verification failed",
-        )
+    print("7. Checking password...")
+
+    password_valid = verify_password(
+        password,
+        user.password,
+    )
+
+    print(
+        "8. Password valid:",
+        password_valid,
+    )
 
     if not password_valid:
-        user.failed_login_attempts = (
-            (user.failed_login_attempts or 0) + 1
-        )
-
-        db.commit()
-
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Invalid admin username or password",
         )
 
-    user.failed_login_attempts = 0
-    user.last_login_date = datetime.utcnow()
+    print("9. PASSWORD SUCCESS")
 
-    create_login_history(
-        db=db,
-        user=user,
-        login_type="ADMIN",
-        ip_address=ip_address,
-    )
+    # =====================================================
+    # TEMPORARILY DO NOT WRITE LOGIN HISTORY
+    # =====================================================
 
-    db.commit()
+    print("10. Creating token...")
 
     token = create_access_token(
         user_id=user.id,
@@ -578,7 +639,9 @@ def admin_login(
         role="ADMIN",
     )
 
-    return {
+    print("11. TOKEN CREATED")
+
+    response = {
         "access_token": token,
         "token_type": "bearer",
         "user_id": user.id,
@@ -587,16 +650,38 @@ def admin_login(
         "role": "ADMIN",
     }
 
+    print("12. RETURNING RESPONSE")
+    print("========== ADMIN LOGIN END ==========")
+
+    return response
 
 def superadmin_login(
     db: Session,
     username: str,
     password: str,
-    ip_address: str | None = None,
+    ip_address: Optional[str] = None,
 ):
+    username = username.strip()
+
+    if not username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is required",
+        )
+
+    if not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Password is required",
+        )
+
     user = (
         db.query(TnApplicationUser)
-        .join(MasterRole)
+        .join(
+            MasterRole,
+            TnApplicationUser.role_id
+            == MasterRole.id,
+        )
         .filter(
             func.lower(
                 TnApplicationUser.username
@@ -619,7 +704,22 @@ def superadmin_login(
             ),
         )
 
-    if not user.is_active:
+    if not user.role:
+        raise HTTPException(
+            status_code=500,
+            detail="Superadmin role is not configured",
+        )
+
+    if (
+        user.role.role_name.upper()
+        != "SUPERADMIN"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is not a Super Admin account",
+        )
+
+    if user.is_active is not True:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superadmin account is inactive",
@@ -636,15 +736,22 @@ def superadmin_login(
             password,
             user.password,
         )
-    except Exception:
+
+    except Exception as exc:
+        print(
+            "SUPERADMIN PASSWORD ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Password verification failed",
         )
 
     if not password_valid:
         user.failed_login_attempts = (
-            (user.failed_login_attempts or 0) + 1
+            (user.failed_login_attempts or 0)
+            + 1
         )
 
         db.commit()
@@ -660,14 +767,33 @@ def superadmin_login(
     user.failed_login_attempts = 0
     user.last_login_date = datetime.utcnow()
 
-    create_login_history(
-        db=db,
-        user=user,
-        login_type="SUPERADMIN",
-        ip_address=ip_address,
-    )
-
     db.commit()
+
+    try:
+        login_history = TnLoginHistory(
+            user_id=user.id,
+            login_date=datetime.utcnow(),
+            login_type="SUPERADMIN",
+            ip_address=ip_address,
+            created_by=user.id,
+            created_date=datetime.utcnow(),
+        )
+
+        db.add(login_history)
+        db.commit()
+
+    except Exception as exc:
+        print(
+            "SUPERADMIN LOGIN HISTORY ERROR:",
+            repr(exc),
+        )
+
+        db.rollback()
+
+        user.failed_login_attempts = 0
+        user.last_login_date = datetime.utcnow()
+
+        db.commit()
 
     token = create_access_token(
         user_id=user.id,
