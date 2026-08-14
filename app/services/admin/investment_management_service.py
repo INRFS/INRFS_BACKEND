@@ -214,6 +214,80 @@ def approve_investment(
             },
         )
 
+        # Generate the bond exactly once when the investment becomes active.
+        # The bond table uses an autoincrement bigint primary key, so reserve
+        # the next sequence value and use that same value in the human-readable
+        # bond number.
+        existing_bond = db.execute(
+            text(
+                """
+                SELECT id, bond_id
+                FROM tn_bond
+                WHERE investment_id = :investment_id
+                LIMIT 1
+                """
+            ),
+            {
+                "investment_id": numeric_investment_id,
+            },
+        ).first()
+
+        if not existing_bond:
+            next_bond_id = db.execute(
+                text(
+                    """
+                    SELECT nextval(
+                        pg_get_serial_sequence(
+                            'tn_bond',
+                            'id'
+                        )
+                    ) AS id
+                    """
+                )
+            ).scalar()
+
+            bond_number = f"BOND{int(next_bond_id):06d}"
+
+            db.execute(
+                text(
+                    """
+                    INSERT INTO tn_bond (
+                        id,
+                        bond_id,
+                        investment_id,
+                        maturity_date,
+                        issue_date,
+                        remarks,
+                        created_by,
+                        created_date,
+                        modified_by,
+                        modified_date
+                    )
+                    SELECT
+                        :id,
+                        :bond_id,
+                        id,
+                        maturity_date,
+                        CURRENT_TIMESTAMP,
+                        :bond_remarks,
+                        :created_by,
+                        CURRENT_TIMESTAMP,
+                        :modified_by,
+                        CURRENT_TIMESTAMP
+                    FROM tn_investment
+                    WHERE id = :investment_pk
+                    """
+                ),
+                {
+                    "id": int(next_bond_id),
+                    "bond_id": bond_number,
+                    "bond_remarks": "Bond generated on investment approval",
+                    "created_by": approved_by,
+                    "modified_by": approved_by,
+                    "investment_pk": numeric_investment_id,
+                },
+            )
+
         db.commit()
 
         fresh_status = db.execute(
@@ -676,211 +750,39 @@ def approve_all_monthly_interest(
         "data": data,
     }
 
+
 def create_tenure_timeout_settlement(
     db: Session,
     investment_id: int,
     created_by: int,
 ):
-    try:
-        result = db.execute(
-            text(
-                """
-                SELECT *
-                FROM fn_create_tenure_timeout_settlement(
-                    :p_investment_id,
-                    :p_created_by
-                )
-                """
-            ),
-            {
-                "p_investment_id": investment_id,
-                "p_created_by": created_by,
-            },
-        )
-
-        settlement_data = _row(result) or {}
-
-        investment_result = db.execute(
-            text(
-                """
-                SELECT *
-                FROM fn_admin_get_investment_details(
-                    :p_investment_id
-                )
-                """
-            ),
-            {
-                "p_investment_id": investment_id,
-            },
-        )
-
-        investment_data = _row(investment_result) or {}
-
-        investment_id_value = (
-            investment_data.get("investment_id")
-            or investment_data.get("investment_code")
-            or settlement_data.get("investment_id")
-        )
-
-        bond_result = None
-
-        if investment_id_value:
-            bond_result = db.execute(
-                text(
-                    """
-                    SELECT *
-                    FROM fn_admin_get_investment_bond_details(
-                        :p_investment_id
-                    )
-                    """
-                ),
-                {
-                    "p_investment_id": str(investment_id_value),
-                },
+    result = db.execute(
+        text(
+            """
+            SELECT *
+            FROM fn_create_tenure_timeout_settlement(
+                :p_investment_id,
+                :p_created_by
             )
+            """
+        ),
+        {
+            "p_investment_id": investment_id,
+            "p_created_by": created_by,
+        },
+    )
 
-        bond_data = _row(bond_result) if bond_result else {}
+    data = _row(result)
 
-        merged = {}
-        merged.update(investment_data)
-        merged.update(bond_data or {})
-        merged.update(settlement_data)
+    db.commit()
 
-        def first_value(*keys, default=None):
-            for key in keys:
-                value = merged.get(key)
-                if value is not None and value != "":
-                    return value
-            return default
+    return {
+        "success": True,
+        "message": "Tenure timeout settlement created successfully",
+        "data": data,
+    }
 
-        principal = first_value(
-            "principal",
-            "principal_amount",
-            "investment_amount",
-            "amount",
-            "invested_amount",
-            "investment_value",
-            default=0,
-        )
 
-        interest_earned = first_value(
-            "interest_earned",
-            "interestEarned",
-            "total_interest",
-            "interest_amount",
-            "earned_interest",
-            "expected_interest_amount",
-            default=0,
-        )
-
-        investor_name = first_value(
-            "investor_name",
-            "investorName",
-            "full_name",
-            "investor_full_name",
-            "name",
-            "investor",
-            default="-",
-        )
-
-        investor_id = first_value(
-            "investor_id",
-            "investor_registration_id",
-            "investor_registration_number",
-            "investor_code",
-            "registration_id",
-            default="-",
-        )
-
-        branch_name = first_value(
-            "branch_name",
-            "branchName",
-            "branch",
-            "branch_name_text",
-            "service_location_name",
-            "location_name",
-            default="-",
-        )
-
-        bond_number = first_value(
-            "bond_number",
-            "bondNumber",
-            "bond_id",
-            "bond",
-            "bond_code",
-            default="-",
-        )
-
-        matured_on = first_value(
-            "matured_on",
-            "maturity_date",
-            "maturityDate",
-            "mature_date",
-            default=None,
-        )
-
-        investment_date = first_value(
-            "investment_date",
-            "invested_on",
-            "investmentDate",
-            default=None,
-        )
-
-        try:
-            principal_decimal = Decimal(str(principal or 0))
-        except Exception:
-            principal_decimal = Decimal("0")
-
-        try:
-            interest_decimal = Decimal(str(interest_earned or 0))
-        except Exception:
-            interest_decimal = Decimal("0")
-
-        gst_amount = (
-            interest_decimal * Decimal("0.18")
-        ).quantize(Decimal("0.01"))
-
-        net_settlement_amount = (
-            principal_decimal
-            + interest_decimal
-            - gst_amount
-        ).quantize(Decimal("0.01"))
-
-        merged.update(
-            {
-                "investment_id": investment_id_value
-                or str(investment_id),
-                "investor_name": investor_name,
-                "investor_id": investor_id,
-                "branch_name": branch_name,
-                "bond_number": bond_number,
-                "matured_on": matured_on,
-                "investment_date": investment_date,
-                "principal": principal_decimal,
-                "principal_amount": principal_decimal,
-                "investment_amount": principal_decimal,
-                "interest_earned": interest_decimal,
-                "total_interest": interest_decimal,
-                "gst": gst_amount,
-                "gst_amount": gst_amount,
-                "net_settlement_amount": net_settlement_amount,
-                "net_settlement": net_settlement_amount,
-            }
-        )
-
-        db.commit()
-
-        return {
-            "success": True,
-            "message": "Tenure timeout settlement created successfully",
-            "data": merged,
-        }
-
-    except Exception:
-        db.rollback()
-        raise
-
-    
 def get_dashboard_summary(
     db: Session,
 ):

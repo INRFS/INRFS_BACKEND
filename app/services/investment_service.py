@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.generated_models import (
     TnInvestment,
+    TnBond,
     TnInvestorRegistration,
     MasterInvestmentTenure,
     MasterInterestRate,
@@ -407,6 +408,144 @@ def get_my_investment(
     return investment
 
 
+def generate_bond_id(
+    db: Session,
+):
+    last_bond = (
+        db.query(TnBond)
+        .order_by(TnBond.id.desc())
+        .first()
+    )
+
+    next_number = (
+        int(last_bond.id) + 1
+        if last_bond
+        else 1
+    )
+
+    return f"BOND{next_number:06d}"
+
+def get_my_investment_bond(
+    db: Session,
+    user_id: int,
+    investment_id: int,
+):
+    investor = get_current_investor(
+        db,
+        user_id,
+    )
+
+    investment = (
+        db.query(TnInvestment)
+        .filter(
+            TnInvestment.id == investment_id,
+            TnInvestment.investor_registration_id
+            == investor.id,
+        )
+        .first()
+    )
+
+    if not investment:
+        raise HTTPException(
+            status_code=404,
+            detail="Investment not found.",
+        )
+
+    active_status_id = get_status_id(
+        db,
+        [
+            "ACTIVE",
+            "APPROVED",
+            "APPROVED ACTIVE",
+        ],
+    )
+
+    if investment.investment_status_id != active_status_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Bond certificate is available "
+                "only for active investments."
+            ),
+        )
+
+    bond = (
+        db.query(TnBond)
+        .filter(
+            TnBond.investment_id == investment.id
+        )
+        .first()
+    )
+
+    if not bond:
+        bond = TnBond(
+            bond_id=generate_bond_id(db),
+            investment_id=investment.id,
+            maturity_date=investment.maturity_date,
+            issue_date=datetime.now(),
+            remarks="Bond generated for active investment",
+            created_by=user_id,
+            modified_by=user_id,
+            modified_date=datetime.now(),
+        )
+
+        db.add(bond)
+        db.commit()
+        db.refresh(bond)
+
+    user = investor.tn_application_user_user
+
+    return {
+        "success": True,
+        "data": {
+            "id": bond.id,
+            "bond_id": bond.bond_id,
+            "bond_number": bond.bond_id,
+            "investment_id": investment.id,
+            "investment_code": investment.investment_id,
+            "investor_registration_id": investor.id,
+            "investor_id": investor.investor_id,
+            "investor_name": getattr(
+                user,
+                "full_name",
+                None,
+            ),
+            "mobile": getattr(
+                user,
+                "mobile",
+                None,
+            ),
+            "email": getattr(
+                user,
+                "email",
+                None,
+            ),
+            "investment_amount":
+                investment.investment_amount,
+            "amount":
+                investment.investment_amount,
+            "interest_rate":
+                investment.interest_rate,
+            "rate":
+                investment.interest_rate,
+            "expected_interest_amount":
+                investment.expected_interest_amount,
+            "maturity_amount":
+                investment.maturity_amount,
+            "investment_date":
+                investment.investment_date,
+            "maturity_date":
+                investment.maturity_date,
+            "issue_date":
+                bond.issue_date,
+            "status": "Active",
+        },
+    }
+
+
+get_my_bond_by_investment = get_my_investment_bond
+
+
 def get_branch_pending_investments(
     db: Session,
     branch_id: int,
@@ -553,6 +692,27 @@ def approve_investment(
     investment.remarks = data.remarks
     investment.modified_by = admin_id
     investment.modified_date = datetime.now()
+
+    existing_bond = (
+        db.query(TnBond)
+        .filter(
+            TnBond.investment_id == investment.id
+        )
+        .first()
+    )
+
+    if not existing_bond:
+        bond = TnBond(
+            bond_id=generate_bond_id(db),
+            investment_id=investment.id,
+            maturity_date=investment.maturity_date,
+            issue_date=datetime.now(),
+            remarks="Bond generated on investment approval",
+            created_by=admin_id,
+            modified_by=admin_id,
+            modified_date=datetime.now(),
+        )
+        db.add(bond)
 
     db.commit()
     db.refresh(investment)
