@@ -33,11 +33,24 @@ def get_role(
     db: Session,
     role_name: str,
 ):
+    normalized_role_name = (
+        role_name
+        .replace(" ", "")
+        .strip()
+        .upper()
+    )
+
     role = (
         db.query(MasterRole)
         .filter(
-            func.upper(MasterRole.role_name)
-            == role_name.upper(),
+            func.replace(
+                func.upper(
+                    MasterRole.role_name
+                ),
+                " ",
+                "",
+            )
+            == normalized_role_name,
             MasterRole.is_active.is_(True),
         )
         .first()
@@ -279,6 +292,13 @@ def register_staff(
     try:
         username = data.username.strip()
 
+        normalized_role_name = (
+            role_name
+            .replace(" ", "")
+            .strip()
+            .upper()
+        )
+
         check_existing_user(
             db=db,
             mobile=data.mobile,
@@ -312,8 +332,16 @@ def register_staff(
         )
 
         db.add(user)
-        db.commit()
+        db.flush()
 
+        if (
+            created_by is None
+            and normalized_role_name == "SUPERADMIN"
+        ):
+            user.created_by = user.id
+            db.flush()
+
+        db.commit()
         db.refresh(user)
 
         return user
@@ -324,6 +352,11 @@ def register_staff(
 
     except Exception as exc:
         db.rollback()
+
+        print(
+            "STAFF REGISTRATION ERROR:",
+            repr(exc),
+        )
 
         raise HTTPException(
             status_code=500,
@@ -687,8 +720,14 @@ def superadmin_login(
                 TnApplicationUser.username
             )
             == username.lower(),
-            func.upper(
-                MasterRole.role_name
+            func.replace(
+                func.upper(
+                    func.trim(
+                        MasterRole.role_name
+                    )
+                ),
+                " ",
+                "",
             )
             == "SUPERADMIN",
         )
@@ -710,10 +749,14 @@ def superadmin_login(
             detail="Superadmin role is not configured",
         )
 
-    if (
-        user.role.role_name.upper()
-        != "SUPERADMIN"
-    ):
+    normalized_role = (
+        (user.role.role_name or "")
+        .replace(" ", "")
+        .strip()
+        .upper()
+    )
+
+    if normalized_role != "SUPERADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not a Super Admin account",
