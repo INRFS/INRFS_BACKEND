@@ -156,21 +156,6 @@ def request_preclose_api(
     )
 
 
-@router.post(
-    "/my-investments/{investment_id}/tenure-timeout-settlement",
-)
-def request_tenure_timeout_settlement_api(
-    investment_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_investor),
-):
-    return request_tenure_timeout_settlement(
-        db=db,
-        user_id=current_user.id,
-        investment_id=investment_id,
-    )
-
-
 @router.get(
     "/admin/branch/{branch_id}/pending",
     response_model=list[InvestmentResponse],
