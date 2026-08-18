@@ -162,7 +162,7 @@ class MasterState(Base):
     state_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
 
-    master_branch: Mapped[list['MasterBranch']] = relationship('MasterBranch', back_populates='state')
+    master_branch: Mapped['MasterBranch'] = relationship('MasterBranch', uselist=False, back_populates='state')
     tn_investor_registration: Mapped[list['TnInvestorRegistration']] = relationship('TnInvestorRegistration', back_populates='state')
 
 
@@ -198,12 +198,14 @@ class MasterBranch(Base):
     __table_args__ = (
         ForeignKeyConstraint(['state_id'], ['master_state.id'], name='fk_master_branch_state'),
         PrimaryKeyConstraint('id', name='pk_master_branch_id'),
-        UniqueConstraint('branch_name', name='uq_master_branch_name')
+        UniqueConstraint('branch_name', name='uq_master_branch_name'),
+        UniqueConstraint('state_id', name='uq_master_branch_state')
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     branch_name: Mapped[str] = mapped_column(String(150), nullable=False)
     state_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    city_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
 
     state: Mapped['MasterState'] = relationship('MasterState', back_populates='master_branch')
@@ -645,7 +647,7 @@ class TnSettlement(Base):
     created_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     modified_by: Mapped[Optional[int]] = mapped_column(BigInteger)
     modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-    gst_amount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(18, 2))
+    gst_amount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(18, 2), server_default=text('0'))
 
     tn_application_user: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[approved_by], back_populates='tn_settlement_approved_by')
     tn_application_user_: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[created_by], back_populates='tn_settlement_created_by')

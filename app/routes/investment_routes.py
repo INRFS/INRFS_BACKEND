@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 
 from app.dependencies import (
-    get_current_user,
     require_investor,
     require_admin_or_superadmin,
 )
@@ -154,6 +153,21 @@ def request_preclose_api(
         user_id=current_user.id,
         investment_id=investment_id,
         reason=data.reason,
+    )
+
+
+@router.post(
+    "/my-investments/{investment_id}/tenure-timeout-settlement",
+)
+def request_tenure_timeout_settlement_api(
+    investment_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_investor),
+):
+    return request_tenure_timeout_settlement(
+        db=db,
+        user_id=current_user.id,
+        investment_id=investment_id,
     )
 
 
