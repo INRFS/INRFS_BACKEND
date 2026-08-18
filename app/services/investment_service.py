@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.models.generated_models import (
     TnInvestment,
@@ -544,6 +545,7 @@ def get_my_investment_bond(
 
 
 get_my_bond_by_investment = get_my_investment_bond
+
 
 
 def get_branch_pending_investments(
