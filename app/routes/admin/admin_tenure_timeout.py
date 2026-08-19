@@ -53,38 +53,159 @@ def get_current_admin_id(current_user):
     )
 
 
+def get_role_name(current_user):
+    role = getattr(
+        current_user,
+        "role",
+        None,
+    )
+
+    if isinstance(role, str):
+        return role.strip().upper()
+
+    if role is not None:
+        role_name = getattr(
+            role,
+            "role_name",
+            None,
+        )
+
+        if role_name:
+            return str(
+                role_name
+            ).strip().upper()
+
+    role_name = getattr(
+        current_user,
+        "role_name",
+        None,
+    )
+
+    if role_name:
+        return str(
+            role_name
+        ).strip().upper()
+
+    return ""
+
+
+def get_admin_branch_id(current_user):
+    role_name = get_role_name(
+        current_user
+    )
+
+    if role_name == "SUPERADMIN":
+        return None
+
+    if role_name != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required.",
+        )
+
+    branch_id = getattr(
+        current_user,
+        "branch_id",
+        None,
+    )
+
+    if branch_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin branch is not assigned.",
+        )
+
+    try:
+        branch_id = int(branch_id)
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    if branch_id <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    return branch_id
+
+
 def create_due_tenure_timeout_settlements(
     db: Session,
     admin_id: int,
+    branch_id=None,
 ):
-    """
-    Automatically create tenure-timeout settlements
-    for investments whose maturity date has been reached.
+    if branch_id is None:
+        investments_result = db.execute(
+            text(
+                """
+                SELECT
+                    i.id
 
-    Existing settlement records are not recreated.
-    """
+                FROM public.tn_investment i
 
-    investments_result = db.execute(
-        text(
-            """
-            SELECT
-                i.id
-            FROM public.tn_investment i
-            WHERE
-                i.maturity_date IS NOT NULL
-                AND i.maturity_date <= CURRENT_DATE
+                WHERE
+                    i.maturity_date IS NOT NULL
+                    AND i.maturity_date <= CURRENT_DATE
 
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM public.tn_settlement s
-                    WHERE
-                        s.investment_id = i.id
-                        AND s.settlement_type = 'TENURE_TIMEOUT'
-                )
-            ORDER BY i.id
-            """
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM public.tn_settlement s
+
+                        WHERE
+                            s.investment_id = i.id
+                            AND s.settlement_type =
+                                'TENURE_TIMEOUT'
+                    )
+
+                ORDER BY i.id
+                """
+            )
         )
-    )
+
+    else:
+        investments_result = db.execute(
+            text(
+                """
+                SELECT
+                    i.id
+
+                FROM public.tn_investment i
+
+                INNER JOIN public.tn_investor_registration ir
+                    ON ir.id =
+                       i.investor_registration_id
+
+                WHERE
+                    i.maturity_date IS NOT NULL
+                    AND i.maturity_date <= CURRENT_DATE
+
+                    AND ir.branch_id =
+                        :branch_id
+
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM public.tn_settlement s
+
+                        WHERE
+                            s.investment_id = i.id
+                            AND s.settlement_type =
+                                'TENURE_TIMEOUT'
+                    )
+
+                ORDER BY i.id
+                """
+            ),
+            {
+                "branch_id": branch_id,
+            },
+        )
 
     investment_ids = [
         row[0]
@@ -99,7 +220,7 @@ def create_due_tenure_timeout_settlements(
                 text(
                     """
                     SELECT *
-                    FROM fn_create_tenure_timeout_settlement(
+                    FROM public.fn_create_tenure_timeout_settlement(
                         :p_investment_id,
                         :p_created_by
                     )
@@ -112,6 +233,7 @@ def create_due_tenure_timeout_settlements(
             )
 
             result.fetchall()
+
             created_count += 1
 
         except Exception as exc:
@@ -145,10 +267,15 @@ def get_tenure_timeout_settlements(
         current_user
     )
 
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
         create_due_tenure_timeout_settlements(
             db=db,
             admin_id=admin_id,
+            branch_id=branch_id,
         )
 
         result = db.execute(
@@ -202,26 +329,38 @@ def get_tenure_timeout_settlements(
                 FROM public.tn_settlement s
 
                 LEFT JOIN public.master_settlement_status ms
-                    ON ms.id = s.settlement_status_id
+                    ON ms.id =
+                       s.settlement_status_id
 
                 LEFT JOIN public.tn_investment i
-                    ON i.id = s.investment_id
+                    ON i.id =
+                       s.investment_id
 
                 LEFT JOIN public.tn_bond b
-                    ON b.investment_id = i.id
+                    ON b.investment_id =
+                       i.id
 
                 LEFT JOIN public.tn_investor_registration ir
-                    ON ir.id = i.investor_registration_id
+                    ON ir.id =
+                       i.investor_registration_id
 
                 LEFT JOIN public.tn_application_user u
-                    ON u.id = ir.user_id
+                    ON u.id =
+                       ir.user_id
 
                 LEFT JOIN public.master_branch br
-                    ON br.id = ir.branch_id
+                    ON br.id =
+                       ir.branch_id
 
                 WHERE
                     s.settlement_type =
-                    'TENURE_TIMEOUT'
+                        'TENURE_TIMEOUT'
+
+                    AND (
+                        :branch_id IS NULL
+                        OR ir.branch_id =
+                           :branch_id
+                    )
 
                 ORDER BY
                     s.id DESC
@@ -231,6 +370,7 @@ def get_tenure_timeout_settlements(
                 """
             ),
             {
+                "branch_id": branch_id,
                 "limit": limit,
                 "offset": offset,
             },
@@ -280,6 +420,10 @@ def get_preclose_requests(
         require_admin_or_superadmin
     ),
 ):
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
         result = db.execute(
             text(
@@ -371,6 +515,12 @@ def get_preclose_requests(
                     'submitted'
                 )
 
+                AND (
+                    :branch_id IS NULL
+                    OR ir.branch_id =
+                       :branch_id
+                )
+
                 ORDER BY
                     pr.id DESC
 
@@ -379,6 +529,7 @@ def get_preclose_requests(
                 """
             ),
             {
+                "branch_id": branch_id,
                 "limit": limit,
                 "offset": offset,
             },
@@ -428,6 +579,10 @@ def get_closed_settlements(
         require_admin_or_superadmin
     ),
 ):
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
         result = db.execute(
             text(
@@ -524,6 +679,12 @@ def get_closed_settlements(
                     'paid'
                 )
 
+                AND (
+                    :branch_id IS NULL
+                    OR ir.branch_id =
+                       :branch_id
+                )
+
                 ORDER BY
                     s.id DESC
 
@@ -532,6 +693,7 @@ def get_closed_settlements(
                 """
             ),
             {
+                "branch_id": branch_id,
                 "limit": limit,
                 "offset": offset,
             },

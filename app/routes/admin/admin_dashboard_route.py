@@ -1,12 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import (
-    HTTPAuthorizationCredentials,
-    HTTPBearer,
-)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.utils.auth_utils import decode_access_token
+from app.dependencies import get_current_user
 
 from app.schemas.admin.admin_dashboard_schemas import (
     DashboardSummaryResponse,
@@ -26,46 +22,87 @@ router = APIRouter(
     tags=["Admin Dashboard"],
 )
 
-security = HTTPBearer()
 
+def get_role_name(current_user):
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(
-        security
-    ),
-):
-    token = credentials.credentials
+    role = getattr(
+        current_user,
+        "role",
+        None,
+    )
 
-    payload = decode_access_token(token)
+    if role is not None:
 
-    if not payload:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token.",
+        if isinstance(role, str):
+            return role.strip().upper()
+
+        role_name = getattr(
+            role,
+            "role_name",
+            None,
         )
 
-    return payload
+        if role_name:
+            return str(
+                role_name
+            ).strip().upper()
+
+    role_name = getattr(
+        current_user,
+        "role_name",
+        None,
+    )
+
+    if role_name:
+        return str(
+            role_name
+        ).strip().upper()
+
+    return ""
 
 
-def require_admin(
-    current_user: dict = Depends(get_current_user),
-):
-    role = current_user.get("role")
+def get_admin_branch_id(current_user):
 
-    if role not in {
-        "ADMIN",
-        "SUPERADMIN",
-        "Admin",
-        "Super Admin",
-        "admin",
-        "superadmin",
-    }:
+    role_name = get_role_name(
+        current_user
+    )
+
+    if role_name == "SUPERADMIN":
+        return None
+
+    if role_name != "ADMIN":
         raise HTTPException(
             status_code=403,
             detail="Admin access required.",
         )
 
-    return current_user
+    branch_id = getattr(
+        current_user,
+        "branch_id",
+        None,
+    )
+
+    if branch_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin branch is not assigned.",
+        )
+
+    try:
+        branch_id = int(branch_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    if branch_id <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    return branch_id
 
 
 @router.get(
@@ -74,17 +111,30 @@ def require_admin(
 )
 def dashboard_summary(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
-        data = get_dashboard_summary(db)
+
+        data = get_dashboard_summary(
+            db=db,
+            branch_id=branch_id,
+        )
 
         return {
             "success": True,
             "data": data,
         }
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
+
         db.rollback()
 
         raise HTTPException(
@@ -99,17 +149,30 @@ def dashboard_summary(
 )
 def dashboard_investor_growth(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
-        data = get_investor_growth(db)
+
+        data = get_investor_growth(
+            db=db,
+            branch_id=branch_id,
+        )
 
         return {
             "success": True,
             "data": data,
         }
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
+
         db.rollback()
 
         raise HTTPException(
@@ -124,17 +187,30 @@ def dashboard_investor_growth(
 )
 def dashboard_monthly_investment_trend(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin),
+    current_user=Depends(get_current_user),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     try:
-        data = get_monthly_investment_trend(db)
+
+        data = get_monthly_investment_trend(
+            db=db,
+            branch_id=branch_id,
+        )
 
         return {
             "success": True,
             "data": data,
         }
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
+
         db.rollback()
 
         raise HTTPException(

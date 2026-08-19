@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -50,15 +52,74 @@ def get_current_user(
     return payload
 
 
+def get_role_name(
+    current_user: dict,
+) -> str:
+
+    role = current_user.get("role")
+
+    if isinstance(role, dict):
+        role = (
+            role.get("role_name")
+            or role.get("name")
+            or role.get("role")
+        )
+
+    if role is None:
+        role = current_user.get(
+            "role_name",
+            "",
+        )
+
+    return str(role).strip().upper()
+
+def get_admin_branch_id(
+    current_user: dict,
+) -> Optional[int]:
+
+    role_name = get_role_name(
+        current_user
+    )
+
+    if role_name == "SUPERADMIN":
+        return None
+
+    if role_name != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required.",
+        )
+
+    branch_id = current_user.get(
+        "branch_id"
+    )
+
+    if branch_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Branch is not assigned to this admin.",
+        )
+
+    try:
+        branch_id = int(branch_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    return branch_id
+
+
 def require_admin(
     current_user: dict =
     Depends(get_current_user),
 ):
-    role = str(
-        current_user.get("role", "")
-    ).upper()
+    role_name = get_role_name(
+        current_user
+    )
 
-    if role not in {
+    if role_name not in {
         "ADMIN",
         "SUPERADMIN",
     }:
@@ -69,25 +130,27 @@ def require_admin(
 
     return current_user
 
-
 @router.get(
     "/dashboard",
     response_model=ReportDashboardResponse,
 )
 def admin_report_dashboard(
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(require_admin),
 ):
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     data = get_admin_report_dashboard(
         db=db,
+        branch_id=branch_id,
     )
 
     return {
         "success": True,
         **data,
     }
-
 
 @router.get(
     "/summary",
@@ -98,10 +161,16 @@ def admin_report_summary(
     current_user: dict =
     Depends(require_admin),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return {
         "success": True,
         "data": get_admin_report_summary(
             db=db,
+            branch_id=branch_id,
         ),
     }
 
@@ -115,10 +184,16 @@ def admin_monthly_investments(
     current_user: dict =
     Depends(require_admin),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return {
         "success": True,
         "data": get_monthly_investment_trend(
             db=db,
+            branch_id=branch_id,
         ),
     }
 
@@ -132,10 +207,16 @@ def admin_investor_growth(
     current_user: dict =
     Depends(require_admin),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return {
         "success": True,
         "data": get_investor_growth(
             db=db,
+            branch_id=branch_id,
         ),
     }
 
@@ -149,10 +230,16 @@ def admin_status_distribution(
     current_user: dict =
     Depends(require_admin),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return {
         "success": True,
         "data": get_investment_status_distribution(
             db=db,
+            branch_id=branch_id,
         ),
     }
 
@@ -162,26 +249,27 @@ def admin_status_distribution(
     response_model=ReportInvestmentResponse,
 )
 def admin_report_investments(
-    limit: int = 10,
-    offset: int = 0,
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     db: Session = Depends(get_db),
     current_user: dict =
     Depends(require_admin),
 ):
-    if limit < 1 or limit > 100:
-        raise HTTPException(
-            status_code=400,
-            detail="Limit must be between 1 and 100.",
-        )
 
-    if offset < 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Offset cannot be negative.",
-        )
+    branch_id = get_admin_branch_id(
+        current_user
+    )
 
     data = get_recent_investments(
         db=db,
+        branch_id=branch_id,
         limit=limit,
         offset=offset,
     )

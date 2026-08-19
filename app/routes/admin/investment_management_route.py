@@ -9,8 +9,6 @@ from app.dependencies import get_current_user
 
 from app.schemas.admin.investment_management_schema import (
     ApproveAllMonthlyInterestRequest,
-    DashboardResponse,
-    DashboardSummaryResponse,
     InvestmentActionResponse,
     InvestmentApproveRequest,
     InvestmentBondDetailsResponse,
@@ -34,13 +32,10 @@ from app.services.admin.investment_management_service import (
     approve_tenure_extension,
     create_tenure_timeout_settlement,
     get_all_investments,
-    get_dashboard_summary,
     get_investment_bond_details,
     get_investment_details,
-    get_investor_growth,
     get_monthly_interest,
     get_monthly_interest_details,
-    get_monthly_investment_trend,
     get_pending_investments,
     get_pending_tenure_extensions,
     get_tenure_extension_details,
@@ -56,9 +51,94 @@ router = APIRouter(
 )
 
 
+def get_role_name(current_user):
+
+    role = getattr(
+        current_user,
+        "role",
+        None,
+    )
+
+    if isinstance(role, str):
+        return role.strip().upper()
+
+    if role is not None:
+        role_name = getattr(
+            role,
+            "role_name",
+            None,
+        )
+
+        if role_name:
+            return str(
+                role_name
+            ).strip().upper()
+
+    role_name = getattr(
+        current_user,
+        "role_name",
+        None,
+    )
+
+    if role_name:
+        return str(
+            role_name
+        ).strip().upper()
+
+    return ""
+
+
+def get_admin_branch_id(current_user):
+
+    role_name = get_role_name(
+        current_user
+    )
+
+    if role_name == "SUPERADMIN":
+        return None
+
+    if role_name != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access required",
+        )
+
+    branch_id = getattr(
+        current_user,
+        "branch_id",
+        None,
+    )
+
+    if branch_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Branch is not assigned to this admin",
+        )
+
+    try:
+        branch_id = int(branch_id)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch",
+        )
+
+    if branch_id <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch",
+        )
+
+    return branch_id
+
+
 def require_admin(
     current_user=Depends(get_current_user),
 ):
+
     if current_user is None:
         raise HTTPException(
             status_code=401,
@@ -75,13 +155,14 @@ def require_admin(
             detail="User account is inactive",
         )
 
-    role_id = getattr(
-        current_user,
-        "role_id",
-        None,
+    role_name = get_role_name(
+        current_user
     )
 
-    if role_id not in (1, 2):
+    if role_name not in (
+        "ADMIN",
+        "SUPERADMIN",
+    ):
         raise HTTPException(
             status_code=403,
             detail="Admin access required",
@@ -110,8 +191,14 @@ def get_investments(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return get_all_investments(
         db=db,
+        branch_id=branch_id,
         bond_id=bond_id,
         limit=limit,
         offset=offset,
@@ -135,8 +222,14 @@ def get_pending_investment_list(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return get_pending_investments(
         db=db,
+        branch_id=branch_id,
         limit=limit,
         offset=offset,
     )
@@ -151,6 +244,7 @@ def get_investment_bond(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_investment_bond_details(
         db=db,
         investment_id=investment_id,
@@ -166,6 +260,7 @@ def get_investment(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_investment_details(
         db=db,
         investment_id=investment_id,
@@ -182,6 +277,7 @@ def approve_investment_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     approved_by = getattr(
         current_user,
         "id",
@@ -195,6 +291,7 @@ def approve_investment_route(
         )
 
     try:
+
         return approve_investment(
             db=db,
             investment_id=investment_id,
@@ -202,7 +299,9 @@ def approve_investment_route(
             approved_by=approved_by,
             remarks=request.remarks,
         )
+
     except ValueError as exc:
+
         raise HTTPException(
             status_code=404,
             detail=str(exc),
@@ -219,6 +318,7 @@ def reject_investment_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     rejected_by = getattr(
         current_user,
         "id",
@@ -232,6 +332,7 @@ def reject_investment_route(
         )
 
     try:
+
         return reject_investment(
             db=db,
             investment_id=investment_id,
@@ -239,7 +340,9 @@ def reject_investment_route(
             rejection_reason=request.rejection_reason,
             remarks=request.remarks,
         )
+
     except ValueError as exc:
+
         raise HTTPException(
             status_code=404,
             detail=str(exc),
@@ -263,8 +366,14 @@ def get_pending_extensions(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return get_pending_tenure_extensions(
         db=db,
+        branch_id=branch_id,
         limit=limit,
         offset=offset,
     )
@@ -279,6 +388,7 @@ def get_extension_details(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_tenure_extension_details(
         db=db,
         request_id=request_id,
@@ -295,6 +405,7 @@ def approve_extension(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     approved_by = getattr(
         current_user,
         "id",
@@ -325,6 +436,7 @@ def reject_extension(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     rejected_by = getattr(
         current_user,
         "id",
@@ -365,8 +477,14 @@ def get_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
     return get_monthly_interest(
         db=db,
+        branch_id=branch_id,
         interest_due_date=interest_due_date,
         limit=limit,
         offset=offset,
@@ -382,6 +500,7 @@ def get_monthly_interest_details_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_monthly_interest_details(
         db=db,
         interest_schedule_id=interest_schedule_id,
@@ -397,6 +516,7 @@ def approve_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     approved_by = getattr(
         current_user,
         "id",
@@ -426,6 +546,7 @@ def reject_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     rejected_by = getattr(
         current_user,
         "id",
@@ -456,6 +577,7 @@ def approve_all_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     approved_by = getattr(
         current_user,
         "id",
@@ -484,6 +606,7 @@ def create_settlement_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     created_by = getattr(
         current_user,
         "id",
@@ -500,43 +623,4 @@ def create_settlement_route(
         db=db,
         investment_id=investment_id,
         created_by=created_by,
-    )
-
-
-@router.get(
-    "/dashboard/summary",
-    response_model=DashboardSummaryResponse,
-)
-def dashboard_summary(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return get_dashboard_summary(
-        db=db,
-    )
-
-
-@router.get(
-    "/dashboard/investor-growth",
-    response_model=DashboardResponse,
-)
-def dashboard_investor_growth(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return get_investor_growth(
-        db=db,
-    )
-
-
-@router.get(
-    "/dashboard/monthly-investment-trend",
-    response_model=DashboardResponse,
-)
-def dashboard_monthly_investment_trend(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return get_monthly_investment_trend(
-        db=db,
     )

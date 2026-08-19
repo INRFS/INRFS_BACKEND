@@ -14,10 +14,6 @@ from app.utils.auth_utils import decode_access_token
 security = HTTPBearer()
 
 
-# =========================================================
-# GET CURRENT USER
-# =========================================================
-
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(
         security
@@ -30,7 +26,6 @@ def get_current_user(
     payload = decode_access_token(token)
 
     if not payload:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -42,7 +37,6 @@ def get_current_user(
     user_id = payload.get("sub")
 
     if not user_id:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
@@ -51,8 +45,7 @@ def get_current_user(
     try:
         user_id = int(user_id)
 
-    except ValueError:
-
+    except (ValueError, TypeError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid user ID in token",
@@ -67,14 +60,12 @@ def get_current_user(
     )
 
     if not user:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
 
     if not user.is_active:
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
@@ -82,10 +73,6 @@ def get_current_user(
 
     return user
 
-
-# =========================================================
-# ROLE CHECKER
-# =========================================================
 
 def require_role(*allowed_roles):
 
@@ -97,6 +84,8 @@ def require_role(*allowed_roles):
 
         role_name = (
             current_user.role.role_name
+            if current_user.role
+            else ""
         )
 
         role_name_upper = role_name.upper()
@@ -107,7 +96,6 @@ def require_role(*allowed_roles):
         ]
 
         if role_name_upper not in allowed_upper:
-
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to access this resource",
@@ -118,10 +106,6 @@ def require_role(*allowed_roles):
     return role_checker
 
 
-# =========================================================
-# SUPERADMIN
-# =========================================================
-
 def require_superadmin(
     current_user=Depends(
         get_current_user
@@ -130,10 +114,11 @@ def require_superadmin(
 
     role_name = (
         current_user.role.role_name
+        if current_user.role
+        else ""
     )
 
     if role_name.upper() != "SUPERADMIN":
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superadmin access required",
@@ -141,10 +126,6 @@ def require_superadmin(
 
     return current_user
 
-
-# =========================================================
-# ADMIN OR SUPERADMIN
-# =========================================================
 
 def require_admin_or_superadmin(
     current_user=Depends(
@@ -154,13 +135,14 @@ def require_admin_or_superadmin(
 
     role_name = (
         current_user.role.role_name
+        if current_user.role
+        else ""
     ).upper()
 
     if role_name not in [
         "ADMIN",
         "SUPERADMIN",
     ]:
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin or Superadmin access required",
@@ -168,10 +150,6 @@ def require_admin_or_superadmin(
 
     return current_user
 
-
-# =========================================================
-# INVESTOR
-# =========================================================
 
 def require_investor(
     current_user=Depends(
@@ -181,10 +159,11 @@ def require_investor(
 
     role_name = (
         current_user.role.role_name
+        if current_user.role
+        else ""
     )
 
     if role_name.upper() != "INVESTOR":
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Investor access required",

@@ -251,7 +251,6 @@ def _enrich_investor_rows(
 
     return enriched
 
-
 def get_investor_management(
     db: Session,
     status_name: Optional[str] = None,
@@ -259,17 +258,20 @@ def get_investor_management(
     search_text: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
+    current_user=None,
+    branch_id: Optional[int] = None,
 ):
     result = db.execute(
         text(
             """
             SELECT *
-            FROM fn_get_investor_management(
+            FROM public.fn_get_investor_management(
                 :p_status_name,
                 :p_kyc_status_name,
                 :p_search_text,
                 :p_limit,
-                :p_offset
+                :p_offset,
+                :p_branch_id
             )
             """
         ),
@@ -279,6 +281,7 @@ def get_investor_management(
             "p_search_text": search_text,
             "p_limit": limit,
             "p_offset": offset,
+            "p_branch_id": branch_id,
         },
     )
 
@@ -294,7 +297,6 @@ def get_investor_management(
         "data": data,
         "total": len(data),
     }
-
 
 def get_investor_details(
     db: Session,

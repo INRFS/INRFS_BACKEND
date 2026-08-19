@@ -1,4 +1,3 @@
-
 import os
 
 from datetime import datetime, timedelta, timezone
@@ -10,10 +9,6 @@ from jose import JWTError, jwt
 
 load_dotenv()
 
-
-# =========================================================
-# JWT CONFIGURATION
-# =========================================================
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 
@@ -37,14 +32,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
 )
 
 
-# =========================================================
-# CREATE ACCESS TOKEN
-# =========================================================
-
 def create_access_token(
     user_id: int,
     login_id: str,
     role: str,
+    branch_id: Optional[int] = None,
 ) -> str:
 
     expire = (
@@ -58,6 +50,7 @@ def create_access_token(
         "sub": str(user_id),
         "login_id": login_id,
         "role": role,
+        "branch_id": branch_id,
         "exp": expire,
     }
 
@@ -68,16 +61,11 @@ def create_access_token(
     )
 
 
-# =========================================================
-# DECODE ACCESS TOKEN
-# =========================================================
-
 def decode_access_token(
     token: str,
 ) -> Optional[dict]:
 
     try:
-
         payload = jwt.decode(
             token,
             SECRET_KEY,
@@ -87,5 +75,4 @@ def decode_access_token(
         return payload
 
     except JWTError:
-
         return None

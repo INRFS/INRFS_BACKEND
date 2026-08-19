@@ -17,6 +17,7 @@ def _row(result) -> Optional[Dict[str, Any]]:
 
 def get_all_investments(
     db: Session,
+    branch_id: Optional[int] = None,
     bond_id: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
@@ -25,14 +26,16 @@ def get_all_investments(
         text(
             """
             SELECT *
-            FROM fn_admin_get_all_investments(
-                :p_bond_id,
-                :p_limit,
-                :p_offset
+            FROM public.fn_admin_get_all_investments(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_bond_id AS VARCHAR),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
             )
             """
         ),
         {
+            "p_branch_id": branch_id,
             "p_bond_id": bond_id,
             "p_limit": limit,
             "p_offset": offset,
@@ -50,6 +53,7 @@ def get_all_investments(
 
 def get_pending_investments(
     db: Session,
+    branch_id: Optional[int] = None,
     limit: int = 20,
     offset: int = 0,
 ):
@@ -57,13 +61,15 @@ def get_pending_investments(
         text(
             """
             SELECT *
-            FROM fn_admin_get_pending_investments(
-                :p_limit,
-                :p_offset
+            FROM public.fn_admin_get_pending_investments(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
             )
             """
         ),
         {
+            "p_branch_id": branch_id,
             "p_limit": limit,
             "p_offset": offset,
         },
@@ -86,7 +92,7 @@ def get_investment_details(
         text(
             """
             SELECT *
-            FROM fn_admin_get_investment_details(
+            FROM public.fn_admin_get_investment_details(
                 :p_investment_id
             )
             """
@@ -118,7 +124,7 @@ def get_investment_bond_details(
         text(
             """
             SELECT *
-            FROM fn_admin_get_investment_bond_details(
+            FROM public.fn_admin_get_investment_bond_details(
                 :p_investment_id
             )
             """
@@ -214,10 +220,6 @@ def approve_investment(
             },
         )
 
-        # Generate the bond exactly once when the investment becomes active.
-        # The bond table uses an autoincrement bigint primary key, so reserve
-        # the next sequence value and use that same value in the human-readable
-        # bond number.
         existing_bond = db.execute(
             text(
                 """
@@ -454,6 +456,7 @@ def reject_investment(
 
 def get_pending_tenure_extensions(
     db: Session,
+    branch_id: Optional[int] = None,
     limit: int = 20,
     offset: int = 0,
 ):
@@ -461,13 +464,15 @@ def get_pending_tenure_extensions(
         text(
             """
             SELECT *
-            FROM fn_admin_get_pending_tenure_extensions(
-                :p_limit,
-                :p_offset
+            FROM public.fn_admin_get_pending_tenure_extensions(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
             )
             """
         ),
         {
+            "p_branch_id": branch_id,
             "p_limit": limit,
             "p_offset": offset,
         },
@@ -586,6 +591,7 @@ def reject_tenure_extension(
 
 def get_monthly_interest(
     db: Session,
+    branch_id: Optional[int] = None,
     interest_due_date: Optional[date] = None,
     limit: int = 20,
     offset: int = 0,
@@ -594,14 +600,16 @@ def get_monthly_interest(
         text(
             """
             SELECT *
-            FROM fn_admin_get_monthly_interest(
-                :p_interest_due_date,
-                :p_limit,
-                :p_offset
+            FROM public.fn_admin_get_monthly_interest(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_interest_due_date AS DATE),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
             )
             """
         ),
         {
+            "p_branch_id": branch_id,
             "p_interest_due_date": interest_due_date,
             "p_limit": limit,
             "p_offset": offset,
@@ -779,65 +787,5 @@ def create_tenure_timeout_settlement(
     return {
         "success": True,
         "message": "Tenure timeout settlement created successfully",
-        "data": data,
-    }
-
-
-def get_dashboard_summary(
-    db: Session,
-):
-    result = db.execute(
-        text(
-            """
-            SELECT *
-            FROM fn_get_admin_dashboard_summary()
-            """
-        )
-    )
-
-    data = _row(result)
-
-    return {
-        "success": True,
-        "data": data,
-    }
-
-
-def get_investor_growth(
-    db: Session,
-):
-    result = db.execute(
-        text(
-            """
-            SELECT *
-            FROM fn_get_admin_investor_growth()
-            """
-        )
-    )
-
-    data = _rows(result)
-
-    return {
-        "success": True,
-        "data": data,
-    }
-
-
-def get_monthly_investment_trend(
-    db: Session,
-):
-    result = db.execute(
-        text(
-            """
-            SELECT *
-            FROM fn_get_admin_monthly_investment_trend()
-            """
-        )
-    )
-
-    data = _rows(result)
-
-    return {
-        "success": True,
         "data": data,
     }
