@@ -1,10 +1,13 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
 def _row_to_dict(row) -> Dict[str, Any]:
+    if row is None:
+        return {}
+
     try:
         return dict(row._mapping)
     except Exception:
@@ -12,6 +15,9 @@ def _row_to_dict(row) -> Dict[str, Any]:
 
 
 def _clean_value(value):
+    if value is None:
+        return None
+
     if hasattr(value, "isoformat"):
         return value.isoformat()
 
@@ -28,11 +34,12 @@ def _clean_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _execute_function(
+def _execute_all(
     db: Session,
     query: str,
-    params: Dict[str, Any] | None = None,
+    params: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
+
     result = db.execute(
         text(query),
         params or {},
@@ -47,8 +54,9 @@ def _execute_function(
 def _execute_one(
     db: Session,
     query: str,
-    params: Dict[str, Any] | None = None,
+    params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+
     result = db.execute(
         text(query),
         params or {},
@@ -64,16 +72,103 @@ def _execute_one(
 
 def get_admin_report_summary(
     db: Session,
+    branch_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    rows = _execute_function(
-        db,
+
+    params = {}
+
+    branch_filter = ""
+
+    if branch_id is not None:
+        branch_filter = """
+            AND r.branch_id = :p_branch_id
         """
-        SELECT *
-        FROM fn_get_admin_dashboard_summary()
+
+        params["p_branch_id"] = branch_id
+
+    row = _execute_one(
+        db,
+        f"""
+        SELECT
+
+            COUNT(
+                DISTINCT i.investor_registration_id
+            ) AS total_investors,
+
+            COUNT(
+                CASE
+                    WHEN LOWER(
+                        COALESCE(s.status_name, '')
+                    ) = 'pending'
+                    THEN 1
+                END
+            ) AS pending_approvals,
+
+            COUNT(
+                CASE
+                    WHEN LOWER(
+                        COALESCE(s.status_name, '')
+                    ) IN (
+                        'approved',
+                        'active'
+                    )
+                    THEN 1
+                END
+            ) AS active_investments,
+
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN LOWER(
+                            COALESCE(
+                                s.status_name,
+                                ''
+                            )
+                        ) IN (
+                            'approved',
+                            'active'
+                        )
+                        THEN COALESCE(
+                            i.investment_amount,
+                            0
+                        )
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS total_aum,
+
+            COUNT(
+                CASE
+                    WHEN LOWER(
+                        COALESCE(
+                            s.status_name,
+                            ''
+                        )
+                    ) IN (
+                        'closed',
+                        'completed'
+                    )
+                    THEN 1
+                END
+            ) AS closed_investments
+
+        FROM public.tn_investment i
+
+        INNER JOIN public.tn_investor_registration r
+            ON r.id = i.investor_registration_id
+
+        LEFT JOIN public.master_investment_status s
+            ON s.id = i.investment_status_id
+
+        WHERE 1 = 1
+
+        {branch_filter}
         """,
+        params,
     )
 
-    if not rows:
+    if not row:
         return {
             "total_investors": 0,
             "pending_kyc": 0,
@@ -85,245 +180,344 @@ def get_admin_report_summary(
             "branch_count": 0,
         }
 
-    row = rows[0]
+    interest_params = {}
 
-    def find_value(
-        names,
-        default=0,
-    ):
-        for name in names:
-            if name in row:
-                return row[name]
+    interest_branch_filter = ""
 
-        lower_map = {
-            str(key).lower(): value
-            for key, value in row.items()
-        }
+    if branch_id is not None:
+        interest_branch_filter = """
+            AND r2.branch_id = :p_branch_id
+        """
 
-        for name in names:
-            if name.lower() in lower_map:
-                return lower_map[name.lower()]
+        interest_params["p_branch_id"] = branch_id
 
-        return default
+    interest_row = _execute_one(
+        db,
+        f"""
+        SELECT
+            COALESCE(
+                SUM(
+                    COALESCE(
+                        ins.net_interest_amount,
+                        0
+                    )
+                ),
+                0
+            ) AS monthly_interest_due
+
+        FROM public.tn_interest_schedule ins
+
+        INNER JOIN public.tn_investment i2
+            ON i2.id = ins.investment_id
+
+        INNER JOIN public.tn_investor_registration r2
+            ON r2.id = i2.investor_registration_id
+
+        WHERE ins.interest_due_date >= CURRENT_DATE
+
+        {interest_branch_filter}
+        """,
+        interest_params,
+    )
+
+    branch_params = {}
+
+    branch_count_filter = ""
+
+    if branch_id is not None:
+        branch_count_filter = """
+            WHERE id = :p_branch_id
+        """
+
+        branch_params["p_branch_id"] = branch_id
+
+    branch_row = _execute_one(
+        db,
+        f"""
+        SELECT COUNT(*) AS branch_count
+        FROM public.master_branch
+        {branch_count_filter}
+        """,
+        branch_params,
+    )
 
     return {
-        "total_investors": find_value(
-            [
-                "total_investors",
-                "investor_count",
-                "investors",
-            ]
+        "total_investors": row.get(
+            "total_investors",
+            0,
         ),
-        "pending_kyc": find_value(
-            [
-                "pending_kyc",
-                "pending_kyc_count",
-                "kyc_pending",
-            ]
+        "pending_kyc": 0,
+        "active_investments": row.get(
+            "active_investments",
+            0,
         ),
-        "active_investments": find_value(
-            [
-                "active_investments",
-                "active_investment_count",
-            ]
+        "total_aum": row.get(
+            "total_aum",
+            0,
         ),
-        "total_aum": find_value(
-            [
-                "total_aum",
-                "aum",
-                "total_investment_amount",
-            ]
+        "monthly_interest_due": interest_row.get(
+            "monthly_interest_due",
+            0,
         ),
-        "monthly_interest_due": find_value(
-            [
-                "monthly_interest_due",
-                "interest_due",
-                "monthly_interest",
-            ]
+        "pending_approvals": row.get(
+            "pending_approvals",
+            0,
         ),
-        "pending_approvals": find_value(
-            [
-                "pending_approvals",
-                "pending_investments",
-                "pending_investment_count",
-            ]
+        "closed_investments": row.get(
+            "closed_investments",
+            0,
         ),
-        "closed_investments": find_value(
-            [
-                "closed_investments",
-                "closed_investment_count",
-            ]
-        ),
-        "branch_count": find_value(
-            [
-                "branch_count",
-                "branches",
-                "active_branches",
-            ]
+        "branch_count": branch_row.get(
+            "branch_count",
+            0,
         ),
     }
 
 
 def get_monthly_investment_trend(
     db: Session,
+    branch_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    rows = _execute_function(
-        db,
+
+    params = {}
+
+    branch_filter = ""
+
+    if branch_id is not None:
+        branch_filter = """
+            AND r.branch_id = :p_branch_id
         """
-        SELECT *
-        FROM fn_get_admin_monthly_investment_trend()
+
+        params["p_branch_id"] = branch_id
+
+    rows = _execute_all(
+        db,
+        f"""
+        SELECT
+
+            TO_CHAR(
+                DATE_TRUNC(
+                    'month',
+                    i.investment_date
+                ),
+                'Mon YYYY'
+            ) AS month,
+
+            COALESCE(
+                SUM(i.investment_amount),
+                0
+            ) AS invested,
+
+            COUNT(i.id) AS count
+
+        FROM public.tn_investment i
+
+        INNER JOIN public.tn_investor_registration r
+            ON r.id = i.investor_registration_id
+
+        WHERE i.investment_date IS NOT NULL
+
+        {branch_filter}
+
+        GROUP BY
+            DATE_TRUNC(
+                'month',
+                i.investment_date
+            )
+
+        ORDER BY
+            DATE_TRUNC(
+                'month',
+                i.investment_date
+            )
         """,
+        params,
     )
 
-    result = []
-
-    for row in rows:
-        result.append({
-            "month": (
-                row.get("month")
-                or row.get("month_name")
-                or row.get("period")
-                or ""
-            ),
-            "invested": (
-                row.get("invested")
-                or row.get("investment_amount")
-                or row.get("total_invested")
-                or row.get("amount")
-                or 0
-            ),
-            "interest": (
-                row.get("interest")
-                or row.get("interest_amount")
-                or row.get("total_interest")
-                or 0
-            ),
-            "count": (
-                row.get("count")
-                or row.get("investment_count")
-                or row.get("total_investments")
-                or 0
-            ),
-        })
-
-    return result
+    return rows
 
 
 def get_investor_growth(
     db: Session,
+    branch_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    rows = _execute_function(
-        db,
+
+    params = {}
+
+    branch_filter = ""
+
+    if branch_id is not None:
+        branch_filter = """
+            AND r.branch_id = :p_branch_id
         """
-        SELECT *
-        FROM fn_get_admin_investor_growth()
+
+        params["p_branch_id"] = branch_id
+
+    rows = _execute_all(
+        db,
+        f"""
+        SELECT
+
+            TO_CHAR(
+                DATE_TRUNC(
+                    'month',
+                    r.created_date
+                ),
+                'Mon YYYY'
+            ) AS month,
+
+            COUNT(*) AS count
+
+        FROM public.tn_investor_registration r
+
+        WHERE r.created_date IS NOT NULL
+
+        {branch_filter}
+
+        GROUP BY
+            DATE_TRUNC(
+                'month',
+                r.created_date
+            )
+
+        ORDER BY
+            DATE_TRUNC(
+                'month',
+                r.created_date
+            )
         """,
+        params,
     )
 
-    result = []
-
-    for row in rows:
-        result.append({
-            "month": (
-                row.get("month")
-                or row.get("month_name")
-                or row.get("period")
-                or ""
-            ),
-            "count": (
-                row.get("count")
-                or row.get("investor_count")
-                or row.get("total_investors")
-                or 0
-            ),
-        })
-
-    return result
+    return rows
 
 
 def get_investment_status_distribution(
     db: Session,
+    branch_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    rows = _execute_function(
-        db,
+
+    params = {}
+
+    branch_filter = ""
+
+    if branch_id is not None:
+        branch_filter = """
+            AND r.branch_id = :p_branch_id
         """
+
+        params["p_branch_id"] = branch_id
+
+    rows = _execute_all(
+        db,
+        f"""
         SELECT
-            s.status_name,
-            COUNT(i.id) AS investment_count,
+
             COALESCE(
-                SUM(i.investment_amount),
+                s.status_name,
+                'Unknown'
+            ) AS status,
+
+            COUNT(i.id) AS count,
+
+            COALESCE(
+                SUM(
+                    i.investment_amount
+                ),
                 0
-            ) AS total_amount
-        FROM tn_investment i
-        LEFT JOIN master_investment_status s
+            ) AS amount
+
+        FROM public.tn_investment i
+
+        INNER JOIN public.tn_investor_registration r
+            ON r.id = i.investor_registration_id
+
+        LEFT JOIN public.master_investment_status s
             ON s.id = i.investment_status_id
+
+        WHERE 1 = 1
+
+        {branch_filter}
+
         GROUP BY
             s.id,
             s.status_name
+
         ORDER BY
             s.id
         """,
+        params,
     )
 
-    return [
-        {
-            "status": (
-                row.get("status_name")
-                or "Unknown"
-            ),
-            "count": row.get(
-                "investment_count",
-                0,
-            ),
-            "amount": row.get(
-                "total_amount",
-                0,
-            ),
-        }
-        for row in rows
-    ]
+    return rows
 
 
 def get_recent_investments(
     db: Session,
+    branch_id: Optional[int] = None,
     limit: int = 10,
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    rows = _execute_function(
-        db,
-        """
-        SELECT *
-        FROM fn_admin_get_all_investments(
-            :p_bond_id,
-            :p_limit,
-            :p_offset
-        )
-        """,
+
+    result = db.execute(
+        text(
+            """
+            SELECT *
+
+            FROM public.fn_admin_get_all_investments(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_bond_id AS VARCHAR),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
+            )
+            """
+        ),
         {
+            "p_branch_id": branch_id,
             "p_bond_id": None,
             "p_limit": limit,
             "p_offset": offset,
         },
     )
 
-    return rows
+    return [
+        _clean_row(
+            _row_to_dict(row)
+        )
+        for row in result.fetchall()
+    ]
 
 
 def get_admin_report_dashboard(
     db: Session,
+    branch_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    summary = get_admin_report_summary(db)
 
-    monthly = get_monthly_investment_trend(db)
+    summary = get_admin_report_summary(
+        db=db,
+        branch_id=branch_id,
+    )
 
-    investor_growth = get_investor_growth(db)
+    monthly = get_monthly_investment_trend(
+        db=db,
+        branch_id=branch_id,
+    )
+
+    investor_growth = get_investor_growth(
+        db=db,
+        branch_id=branch_id,
+    )
 
     status_distribution = (
-        get_investment_status_distribution(db)
+        get_investment_status_distribution(
+            db=db,
+            branch_id=branch_id,
+        )
     )
 
     recent_investments = get_recent_investments(
         db=db,
+        branch_id=branch_id,
         limit=10,
         offset=0,
     )

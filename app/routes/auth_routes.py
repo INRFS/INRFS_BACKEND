@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Request,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -41,6 +46,7 @@ def investor_register(
     data: InvestorRegisterRequest,
     db: Session = Depends(get_db),
 ):
+
     user, investor = register_investor(
         db=db,
         data=data,
@@ -52,6 +58,7 @@ def investor_register(
         "investor_id": investor.investor_id,
         "user_id": user.id,
         "full_name": user.full_name,
+        "branch_id": investor.branch_id,
         "kyc_status": (
             investor.kyc_status.kyc_status_name
             if investor.kyc_status
@@ -69,6 +76,7 @@ def investor_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
+
     ip_address = (
         request.client.host
         if request.client
@@ -89,14 +97,18 @@ def investor_login_api(
 )
 def admin_register(
     data: StaffRegisterRequest,
-    current_user=Depends(require_superadmin),
+    current_user=Depends(
+        require_superadmin
+    ),
     db: Session = Depends(get_db),
 ):
+
     user = register_staff(
         db=db,
         data=data,
         role_name="ADMIN",
         created_by=current_user.id,
+        branch_id=data.branch_id,
     )
 
     return {
@@ -105,6 +117,7 @@ def admin_register(
         "user_id": user.id,
         "username": user.username,
         "full_name": user.full_name,
+        "branch_id": user.branch_id,
     }
 
 
@@ -114,14 +127,18 @@ def admin_register(
 )
 def superadmin_register(
     data: StaffRegisterRequest,
-    current_user=Depends(require_superadmin),
+    current_user=Depends(
+        require_superadmin
+    ),
     db: Session = Depends(get_db),
 ):
+
     user = register_staff(
         db=db,
         data=data,
         role_name="SUPERADMIN",
         created_by=current_user.id,
+        branch_id=data.branch_id,
     )
 
     return {
@@ -130,6 +147,7 @@ def superadmin_register(
         "user_id": user.id,
         "username": user.username,
         "full_name": user.full_name,
+        "branch_id": user.branch_id,
     }
 
 
@@ -142,6 +160,7 @@ def admin_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
+
     ip_address = (
         request.client.host
         if request.client
@@ -165,6 +184,7 @@ def superadmin_login_api(
     request: Request,
     db: Session = Depends(get_db),
 ):
+
     ip_address = (
         request.client.host
         if request.client
@@ -184,15 +204,25 @@ def superadmin_login_api(
     response_model=UserResponse,
 )
 def get_current_user_details(
-    current_user=Depends(get_current_user),
+    current_user=Depends(
+        get_current_user
+    ),
 ):
+
     role_name = (
         current_user.role.role_name
         if current_user.role
         else ""
     )
 
+    branch_id = getattr(
+        current_user,
+        "branch_id",
+        None,
+    )
+
     if role_name.upper() == "INVESTOR":
+
         investor = (
             current_user.tn_investor_registration_user
         )
@@ -202,6 +232,10 @@ def get_current_user_details(
             if investor
             else current_user.username
         )
+
+        if investor and investor.branch_id:
+            branch_id = investor.branch_id
+
     else:
         login_id = current_user.username
 
@@ -215,4 +249,5 @@ def get_current_user_details(
         "is_active": bool(
             current_user.is_active
         ),
+        "branch_id": branch_id,
     }

@@ -33,6 +33,7 @@ def get_role(
     db: Session,
     role_name: str,
 ):
+
     normalized_role_name = (
         role_name
         .replace(" ", "")
@@ -71,6 +72,7 @@ def get_role(
 def get_active_user_status(
     db: Session,
 ):
+
     user_status = (
         db.query(MasterUserStatus)
         .filter(
@@ -98,6 +100,7 @@ def get_active_user_status(
 def get_pending_kyc_status(
     db: Session,
 ):
+
     kyc_status = (
         db.query(MasterKycStatus)
         .filter(
@@ -128,6 +131,7 @@ def check_existing_user(
     email: Optional[str] = None,
     username: Optional[str] = None,
 ):
+
     mobile_exists = (
         db.query(TnApplicationUser)
         .filter(
@@ -143,6 +147,7 @@ def check_existing_user(
         )
 
     if email:
+
         email_exists = (
             db.query(TnApplicationUser)
             .filter(
@@ -161,6 +166,7 @@ def check_existing_user(
             )
 
     if username:
+
         username_exists = (
             db.query(TnApplicationUser)
             .filter(
@@ -183,7 +189,9 @@ def register_investor(
     db: Session,
     data: InvestorRegisterRequest,
 ):
+
     try:
+
         check_existing_user(
             db=db,
             mobile=data.mobile,
@@ -195,9 +203,13 @@ def register_investor(
             "INVESTOR",
         )
 
-        user_status = get_active_user_status(db)
+        user_status = get_active_user_status(
+            db
+        )
 
-        kyc_status = get_pending_kyc_status(db)
+        kyc_status = get_pending_kyc_status(
+            db
+        )
 
         investor_exists = (
             db.query(TnInvestorRegistration)
@@ -272,6 +284,7 @@ def register_investor(
         raise
 
     except Exception as exc:
+
         db.rollback()
 
         raise HTTPException(
@@ -288,8 +301,11 @@ def register_staff(
     data: StaffRegisterRequest,
     role_name: str,
     created_by: Optional[int] = None,
+    branch_id: Optional[int] = None,
 ):
+
     try:
+
         username = data.username.strip()
 
         normalized_role_name = (
@@ -315,6 +331,27 @@ def register_staff(
             db
         )
 
+        if normalized_role_name == "ADMIN":
+
+            if branch_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Branch is required "
+                        "for Admin"
+                    ),
+                )
+
+            branch_id = int(branch_id)
+
+        elif normalized_role_name == "SUPERADMIN":
+
+            branch_id = (
+                int(branch_id)
+                if branch_id is not None
+                else None
+            )
+
         user = TnApplicationUser(
             role_id=role.id,
             user_status_id=user_status.id,
@@ -325,6 +362,7 @@ def register_staff(
             password=hash_password(
                 data.password
             ),
+            branch_id=branch_id,
             failed_login_attempts=0,
             is_active=True,
             created_by=created_by,
@@ -342,6 +380,7 @@ def register_staff(
             db.flush()
 
         db.commit()
+
         db.refresh(user)
 
         return user
@@ -351,6 +390,7 @@ def register_staff(
         raise
 
     except Exception as exc:
+
         db.rollback()
 
         print(
@@ -373,7 +413,9 @@ def create_login_history(
     login_type: str,
     ip_address: Optional[str] = None,
 ):
+
     try:
+
         login_history = TnLoginHistory(
             user_id=user.id,
             login_date=datetime.utcnow(),
@@ -389,6 +431,7 @@ def create_login_history(
         return True
 
     except Exception as exc:
+
         print(
             "LOGIN HISTORY ERROR:",
             repr(exc),
@@ -405,6 +448,7 @@ def investor_login(
     password: str,
     ip_address: Optional[str] = None,
 ):
+
     investor_id = investor_id.strip()
 
     investor = (
@@ -484,6 +528,7 @@ def investor_login(
         "APPROVED",
         "VERIFIED",
     ):
+
         if kyc_status == "PENDING":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -517,11 +562,14 @@ def investor_login(
         )
 
     try:
+
         password_valid = verify_password(
             password,
             user.password,
         )
+
     except Exception as exc:
+
         print(
             "INVESTOR PASSWORD ERROR:",
             repr(exc),
@@ -533,6 +581,7 @@ def investor_login(
         )
 
     if not password_valid:
+
         user.failed_login_attempts = (
             (user.failed_login_attempts or 0)
             + 1
@@ -551,6 +600,7 @@ def investor_login(
     db.commit()
 
     try:
+
         create_login_history(
             db=db,
             user=user,
@@ -561,6 +611,7 @@ def investor_login(
         db.commit()
 
     except Exception:
+
         db.rollback()
 
         user.failed_login_attempts = 0
@@ -572,6 +623,7 @@ def investor_login(
         user_id=user.id,
         login_id=investor.investor_id,
         role="INVESTOR",
+        branch_id=investor.branch_id,
     )
 
     return {
@@ -581,52 +633,53 @@ def investor_login(
         "login_id": investor.investor_id,
         "full_name": user.full_name,
         "role": "INVESTOR",
+        "branch_id": investor.branch_id,
     }
+
 
 def admin_login(
     db: Session,
     username: str,
     password: str,
-    ip_address: str | None = None,
+    ip_address: Optional[str] = None,
 ):
-    print("========== ADMIN LOGIN START ==========")
 
     username = username.strip()
-
-    print("1. Username:", repr(username))
 
     user = (
         db.query(TnApplicationUser)
         .join(
             MasterRole,
-            TnApplicationUser.role_id == MasterRole.id,
+            TnApplicationUser.role_id
+            == MasterRole.id,
         )
         .filter(
             func.lower(
                 TnApplicationUser.username
-            ) == username.lower(),
-            func.upper(
-                MasterRole.role_name
-            ) == "ADMIN",
+            )
+            == username.lower(),
+            func.replace(
+                func.upper(
+                    func.trim(
+                        MasterRole.role_name
+                    )
+                ),
+                " ",
+                "",
+            )
+            == "ADMIN",
         )
         .first()
-    )
-
-    print(
-        "2. User found:",
-        user is not None,
     )
 
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid admin username or password",
+            detail=(
+                "Invalid admin username "
+                "or password"
+            ),
         )
-
-    print("3. User ID:", user.id)
-    print("4. DB username:", user.username)
-    print("5. Role:", user.role.role_name)
-    print("6. Active:", user.is_active)
 
     if not user.is_active:
         raise HTTPException(
@@ -640,53 +693,74 @@ def admin_login(
             detail="Password is not configured",
         )
 
-    print("7. Checking password...")
-
     password_valid = verify_password(
         password,
         user.password,
     )
 
-    print(
-        "8. Password valid:",
-        password_valid,
-    )
-
     if not password_valid:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid admin username or password",
+
+        user.failed_login_attempts = (
+            (user.failed_login_attempts or 0)
+            + 1
         )
 
-    print("9. PASSWORD SUCCESS")
+        db.commit()
 
-    # =====================================================
-    # TEMPORARILY DO NOT WRITE LOGIN HISTORY
-    # =====================================================
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Invalid admin username "
+                "or password"
+            ),
+        )
 
-    print("10. Creating token...")
+    branch_id = getattr(
+        user,
+        "branch_id",
+        None,
+    )
+
+    if branch_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Admin account is not assigned "
+                "to a branch"
+            ),
+        )
+
+    user.failed_login_attempts = 0
+    user.last_login_date = datetime.utcnow()
+
+    db.commit()
+
+    create_login_history(
+        db=db,
+        user=user,
+        login_type="ADMIN",
+        ip_address=ip_address,
+    )
+
+    db.commit()
 
     token = create_access_token(
         user_id=user.id,
         login_id=user.username,
         role="ADMIN",
+        branch_id=branch_id,
     )
 
-    print("11. TOKEN CREATED")
-
-    response = {
+    return {
         "access_token": token,
         "token_type": "bearer",
         "user_id": user.id,
         "login_id": user.username,
         "full_name": user.full_name,
         "role": "ADMIN",
+        "branch_id": branch_id,
     }
 
-    print("12. RETURNING RESPONSE")
-    print("========== ADMIN LOGIN END ==========")
-
-    return response
 
 def superadmin_login(
     db: Session,
@@ -694,6 +768,7 @@ def superadmin_login(
     password: str,
     ip_address: Optional[str] = None,
 ):
+
     username = username.strip()
 
     if not username:
@@ -746,7 +821,9 @@ def superadmin_login(
     if not user.role:
         raise HTTPException(
             status_code=500,
-            detail="Superadmin role is not configured",
+            detail=(
+                "Superadmin role is not configured"
+            ),
         )
 
     normalized_role = (
@@ -759,7 +836,10 @@ def superadmin_login(
     if normalized_role != "SUPERADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is not a Super Admin account",
+            detail=(
+                "This account is not a "
+                "Super Admin account"
+            ),
         )
 
     if user.is_active is not True:
@@ -774,24 +854,13 @@ def superadmin_login(
             detail="Password is not configured",
         )
 
-    try:
-        password_valid = verify_password(
-            password,
-            user.password,
-        )
-
-    except Exception as exc:
-        print(
-            "SUPERADMIN PASSWORD ERROR:",
-            repr(exc),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="Password verification failed",
-        )
+    password_valid = verify_password(
+        password,
+        user.password,
+    )
 
     if not password_valid:
+
         user.failed_login_attempts = (
             (user.failed_login_attempts or 0)
             + 1
@@ -812,36 +881,20 @@ def superadmin_login(
 
     db.commit()
 
-    try:
-        login_history = TnLoginHistory(
-            user_id=user.id,
-            login_date=datetime.utcnow(),
-            login_type="SUPERADMIN",
-            ip_address=ip_address,
-            created_by=user.id,
-            created_date=datetime.utcnow(),
-        )
+    create_login_history(
+        db=db,
+        user=user,
+        login_type="SUPERADMIN",
+        ip_address=ip_address,
+    )
 
-        db.add(login_history)
-        db.commit()
-
-    except Exception as exc:
-        print(
-            "SUPERADMIN LOGIN HISTORY ERROR:",
-            repr(exc),
-        )
-
-        db.rollback()
-
-        user.failed_login_attempts = 0
-        user.last_login_date = datetime.utcnow()
-
-        db.commit()
+    db.commit()
 
     token = create_access_token(
         user_id=user.id,
         login_id=user.username,
         role="SUPERADMIN",
+        branch_id=None,
     )
 
     return {
@@ -851,4 +904,5 @@ def superadmin_login(
         "login_id": user.username,
         "full_name": user.full_name,
         "role": "SUPERADMIN",
+        "branch_id": None,
     }
