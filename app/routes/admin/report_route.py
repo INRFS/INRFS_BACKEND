@@ -1,21 +1,21 @@
-from typing import Optional
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+)
+
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
+
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.utils.auth_utils import decode_access_token
-
-from app.schemas.admin.report_schemas import (
-    ReportDashboardResponse,
-    ReportSummaryResponse,
-    ReportChartResponse,
-    ReportInvestmentResponse,
-)
 
 from app.services.admin.report_service import (
     get_admin_report_summary,
@@ -23,6 +23,7 @@ from app.services.admin.report_service import (
     get_investor_growth,
     get_investment_status_distribution,
     get_recent_investments,
+    get_pending_investments,
     get_admin_report_dashboard,
 )
 
@@ -36,8 +37,9 @@ security = HTTPBearer()
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials =
-    Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(
+        security
+    ),
 ):
     token = credentials.credentials
 
@@ -73,21 +75,19 @@ def get_role_name(
 
     return str(role).strip().upper()
 
+
 def get_admin_branch_id(
     current_user: dict,
-) -> Optional[int]:
+) -> int:
 
     role_name = get_role_name(
         current_user
     )
 
-    if role_name == "SUPERADMIN":
-        return None
-
     if role_name != "ADMIN":
         raise HTTPException(
             status_code=403,
-            detail="Admin access required.",
+            detail="Reports are available only for branch admins.",
         )
 
     branch_id = current_user.get(
@@ -102,7 +102,16 @@ def get_admin_branch_id(
 
     try:
         branch_id = int(branch_id)
-    except (TypeError, ValueError):
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid admin branch.",
+        )
+
+    if branch_id <= 0:
         raise HTTPException(
             status_code=403,
             detail="Invalid admin branch.",
@@ -112,17 +121,15 @@ def get_admin_branch_id(
 
 
 def require_admin(
-    current_user: dict =
-    Depends(get_current_user),
+    current_user: dict = Depends(
+        get_current_user
+    ),
 ):
     role_name = get_role_name(
         current_user
     )
 
-    if role_name not in {
-        "ADMIN",
-        "SUPERADMIN",
-    }:
+    if role_name != "ADMIN":
         raise HTTPException(
             status_code=403,
             detail="Admin access required.",
@@ -130,124 +137,173 @@ def require_admin(
 
     return current_user
 
-@router.get(
-    "/dashboard",
-    response_model=ReportDashboardResponse,
-)
+
+@router.get("/dashboard")
 def admin_report_dashboard(
+    year: int = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+    ),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
+    if year is None:
+        year = date.today().year
+
     branch_id = get_admin_branch_id(
         current_user
     )
 
     data = get_admin_report_dashboard(
         db=db,
+        year=year,
         branch_id=branch_id,
     )
 
     return {
         "success": True,
+        "year": year,
+        "branch_id": branch_id,
         **data,
     }
 
-@router.get(
-    "/summary",
-    response_model=ReportSummaryResponse,
-)
+
+@router.get("/summary")
 def admin_report_summary(
+    year: int = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+    ),
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
+    if year is None:
+        year = date.today().year
 
     branch_id = get_admin_branch_id(
         current_user
     )
 
+    data = get_admin_report_summary(
+        db=db,
+        year=year,
+        branch_id=branch_id,
+    )
+
     return {
         "success": True,
-        "data": get_admin_report_summary(
-            db=db,
-            branch_id=branch_id,
-        ),
+        "year": year,
+        "branch_id": branch_id,
+        "data": data,
     }
 
 
-@router.get(
-    "/monthly-investments",
-    response_model=ReportChartResponse,
-)
+@router.get("/monthly-investments")
 def admin_monthly_investments(
+    year: int = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+    ),
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
+    if year is None:
+        year = date.today().year
 
     branch_id = get_admin_branch_id(
         current_user
     )
 
+    data = get_monthly_investment_trend(
+        db=db,
+        year=year,
+        branch_id=branch_id,
+    )
+
     return {
         "success": True,
-        "data": get_monthly_investment_trend(
-            db=db,
-            branch_id=branch_id,
-        ),
+        "year": year,
+        "branch_id": branch_id,
+        "data": data,
     }
 
 
-@router.get(
-    "/investor-growth",
-    response_model=ReportChartResponse,
-)
+@router.get("/investor-growth")
 def admin_investor_growth(
+    year: int = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+    ),
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
+    if year is None:
+        year = date.today().year
 
     branch_id = get_admin_branch_id(
         current_user
     )
 
+    data = get_investor_growth(
+        db=db,
+        year=year,
+        branch_id=branch_id,
+    )
+
     return {
         "success": True,
-        "data": get_investor_growth(
-            db=db,
-            branch_id=branch_id,
-        ),
+        "year": year,
+        "branch_id": branch_id,
+        "data": data,
     }
 
 
-@router.get(
-    "/status-distribution",
-    response_model=ReportChartResponse,
-)
+@router.get("/status-distribution")
 def admin_status_distribution(
+    year: int = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+    ),
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
+    if year is None:
+        year = date.today().year
 
     branch_id = get_admin_branch_id(
         current_user
     )
 
+    data = get_investment_status_distribution(
+        db=db,
+        year=year,
+        branch_id=branch_id,
+    )
+
     return {
         "success": True,
-        "data": get_investment_status_distribution(
-            db=db,
-            branch_id=branch_id,
-        ),
+        "year": year,
+        "branch_id": branch_id,
+        "data": data,
     }
 
 
-@router.get(
-    "/investments",
-    response_model=ReportInvestmentResponse,
-)
+@router.get("/investments")
 def admin_report_investments(
     limit: int = Query(
         default=10,
@@ -259,10 +315,10 @@ def admin_report_investments(
         ge=0,
     ),
     db: Session = Depends(get_db),
-    current_user: dict =
-    Depends(require_admin),
+    current_user: dict = Depends(
+        require_admin
+    ),
 ):
-
     branch_id = get_admin_branch_id(
         current_user
     )
@@ -276,6 +332,46 @@ def admin_report_investments(
 
     return {
         "success": True,
+        "branch_id": branch_id,
         "data": data,
+        "limit": limit,
+        "offset": offset,
+        "total": len(data),
+    }
+
+
+@router.get("/pending-investments")
+def admin_pending_investments(
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_admin
+    ),
+):
+    branch_id = get_admin_branch_id(
+        current_user
+    )
+
+    data = get_pending_investments(
+        db=db,
+        branch_id=branch_id,
+        limit=limit,
+        offset=offset,
+    )
+
+    return {
+        "success": True,
+        "branch_id": branch_id,
+        "data": data,
+        "limit": limit,
+        "offset": offset,
         "total": len(data),
     }
