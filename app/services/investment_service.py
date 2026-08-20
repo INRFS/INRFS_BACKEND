@@ -41,10 +41,10 @@ def add_months(
 
     days_in_month = [
         31,
-        29 if year % 4 == 0 and (
-            year % 100 != 0 or
-            year % 400 == 0
-        ) else 28,
+        29
+        if year % 4 == 0
+        and (year % 100 != 0 or year % 400 == 0)
+        else 28,
         31,
         30,
         31,
@@ -76,11 +76,8 @@ def get_current_investor(
     investor = (
         db.query(TnInvestorRegistration)
         .filter(
-            TnInvestorRegistration.user_id
-            == user_id,
-            TnInvestorRegistration.is_active.is_(
-                True
-            ),
+            TnInvestorRegistration.user_id == user_id,
+            TnInvestorRegistration.is_active.is_(True),
         )
         .first()
     )
@@ -101,11 +98,8 @@ def get_tenure(
     tenure = (
         db.query(MasterInvestmentTenure)
         .filter(
-            MasterInvestmentTenure.id
-            == tenure_id,
-            MasterInvestmentTenure.is_active.is_(
-                True
-            ),
+            MasterInvestmentTenure.id == tenure_id,
+            MasterInvestmentTenure.is_active.is_(True),
         )
         .first()
     )
@@ -125,9 +119,7 @@ def get_active_interest_rate(
     rate = (
         db.query(MasterInterestRate)
         .filter(
-            MasterInterestRate.is_active.is_(
-                True
-            )
+            MasterInterestRate.is_active.is_(True)
         )
         .order_by(
             MasterInterestRate.id.desc()
@@ -153,9 +145,7 @@ def get_status_id(
     statuses = (
         db.query(MasterInvestmentStatus)
         .filter(
-            MasterInvestmentStatus.is_active.is_(
-                True
-            )
+            MasterInvestmentStatus.is_active.is_(True)
         )
         .all()
     )
@@ -372,7 +362,8 @@ def get_my_investments(
             == investor.id
         )
         .order_by(
-            TnInvestment.investment_date.desc()
+            TnInvestment
+            .investment_date.desc()
         )
         .all()
     )
@@ -426,6 +417,7 @@ def generate_bond_id(
 
     return f"BOND{next_number:06d}"
 
+
 def get_my_investment_bond(
     db: Session,
     user_id: int,
@@ -440,8 +432,9 @@ def get_my_investment_bond(
         db.query(TnInvestment)
         .filter(
             TnInvestment.id == investment_id,
-            TnInvestment.investor_registration_id
-            == investor.id,
+            TnInvestment
+                .investor_registration_id
+                == investor.id,
         )
         .first()
     )
@@ -461,7 +454,10 @@ def get_my_investment_bond(
         ],
     )
 
-    if investment.investment_status_id != active_status_id:
+    if (
+        investment.investment_status_id
+        != active_status_id
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
@@ -473,7 +469,8 @@ def get_my_investment_bond(
     bond = (
         db.query(TnBond)
         .filter(
-            TnBond.investment_id == investment.id
+            TnBond.investment_id
+            == investment.id
         )
         .first()
     )
@@ -482,9 +479,13 @@ def get_my_investment_bond(
         bond = TnBond(
             bond_id=generate_bond_id(db),
             investment_id=investment.id,
-            maturity_date=investment.maturity_date,
+            maturity_date=
+                investment.maturity_date,
             issue_date=datetime.now(),
-            remarks="Bond generated for active investment",
+            remarks=(
+                "Bond generated for "
+                "active investment"
+            ),
             created_by=user_id,
             modified_by=user_id,
             modified_date=datetime.now(),
@@ -503,9 +504,12 @@ def get_my_investment_bond(
             "bond_id": bond.bond_id,
             "bond_number": bond.bond_id,
             "investment_id": investment.id,
-            "investment_code": investment.investment_id,
-            "investor_registration_id": investor.id,
-            "investor_id": investor.investor_id,
+            "investment_code":
+                investment.investment_id,
+            "investor_registration_id":
+                investor.id,
+            "investor_id":
+                investor.investor_id,
             "investor_name": getattr(
                 user,
                 "full_name",
@@ -544,8 +548,9 @@ def get_my_investment_bond(
     }
 
 
-get_my_bond_by_investment = get_my_investment_bond
-
+get_my_bond_by_investment = (
+    get_my_investment_bond
+)
 
 
 def get_branch_pending_investments(
@@ -612,15 +617,16 @@ def approve_investment(
     statuses = (
         db.query(MasterInvestmentStatus)
         .filter(
-            MasterInvestmentStatus.is_active.is_(
-                True
-            )
+            MasterInvestmentStatus
+                .is_active.is_(True)
         )
         .all()
     )
 
     status_map = {
-        status.status_name.strip().lower():
+        status.status_name
+            .strip()
+            .lower():
             status.id
         for status in statuses
     }
@@ -698,7 +704,8 @@ def approve_investment(
     existing_bond = (
         db.query(TnBond)
         .filter(
-            TnBond.investment_id == investment.id
+            TnBond.investment_id
+            == investment.id
         )
         .first()
     )
@@ -707,13 +714,18 @@ def approve_investment(
         bond = TnBond(
             bond_id=generate_bond_id(db),
             investment_id=investment.id,
-            maturity_date=investment.maturity_date,
+            maturity_date=
+                investment.maturity_date,
             issue_date=datetime.now(),
-            remarks="Bond generated on investment approval",
+            remarks=(
+                "Bond generated on "
+                "investment approval"
+            ),
             created_by=admin_id,
             modified_by=admin_id,
             modified_date=datetime.now(),
         )
+
         db.add(bond)
 
     db.commit()
@@ -798,7 +810,11 @@ def request_tenure_extension(
 
     active_status_id = get_status_id(
         db,
-        ["ACTIVE", "APPROVED", "APPROVED ACTIVE"],
+        [
+            "ACTIVE",
+            "APPROVED",
+            "APPROVED ACTIVE",
+        ],
     )
 
     if (
@@ -857,11 +873,11 @@ def request_tenure_extension(
     requested_tenure = (
         db.query(MasterInvestmentTenure)
         .filter(
-            MasterInvestmentTenure.tenure_months
-            == requested_total_months,
-            MasterInvestmentTenure.is_active.is_(
-                True
-            ),
+            MasterInvestmentTenure
+                .tenure_months
+                == requested_total_months,
+            MasterInvestmentTenure
+                .is_active.is_(True),
         )
         .first()
     )
@@ -965,7 +981,11 @@ def request_preclose(
 
     active_status_id = get_status_id(
         db,
-        ["ACTIVE", "APPROVED", "APPROVED ACTIVE"],
+        [
+            "ACTIVE",
+            "APPROVED",
+            "APPROVED ACTIVE",
+        ],
     )
 
     if (

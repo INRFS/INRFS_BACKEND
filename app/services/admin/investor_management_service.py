@@ -301,7 +301,33 @@ def get_investor_management(
 def get_investor_details(
     db: Session,
     investor_registration_id: int,
+    branch_id: Optional[int] = None,
 ):
+    registration = (
+        db.query(TnInvestorRegistration)
+        .filter(
+            TnInvestorRegistration.id
+            == investor_registration_id
+        )
+        .first()
+    )
+
+    if not registration:
+        raise HTTPException(
+            status_code=404,
+            detail="Investor not found",
+        )
+
+    if (
+        branch_id is not None
+        and registration.branch_id is not None
+        and int(registration.branch_id) != int(branch_id)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Investor does not belong to this branch",
+        )
+
     result = db.execute(
         text(
             """
@@ -322,17 +348,8 @@ def get_investor_details(
     if not data:
         raise HTTPException(
             status_code=404,
-            detail="Investor not found",
+            detail="Investor details not found",
         )
-
-    registration = (
-        db.query(TnInvestorRegistration)
-        .filter(
-            TnInvestorRegistration.id
-            == investor_registration_id
-        )
-        .first()
-    )
 
     if registration:
         data[
@@ -547,6 +564,7 @@ def reject_investor_kyc(
     rejection_reason: str,
     rejected_by: int,
     remarks: Optional[str] = None,
+    branch_id: Optional[int] = None,
 ):
     investor_id = str(
         investor_id
@@ -570,6 +588,16 @@ def reject_investor_kyc(
                 "Investor registration not found "
                 f"for ID: {investor_id}"
             ),
+        )
+
+    if (
+        branch_id is not None
+        and registration.branch_id is not None
+        and int(registration.branch_id) != int(branch_id)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Investor does not belong to this branch",
         )
 
     actual_investor_id = (
