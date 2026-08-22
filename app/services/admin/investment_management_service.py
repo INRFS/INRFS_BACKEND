@@ -1,5 +1,4 @@
 from datetime import date
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -13,6 +12,40 @@ def _rows(result) -> List[Dict[str, Any]]:
 def _row(result) -> Optional[Dict[str, Any]]:
     row = result.first()
     return dict(row._mapping) if row else None
+
+
+def _get_numeric_investment_id(
+    db: Session,
+    investment_id: str,
+) -> int:
+    value = str(investment_id).strip()
+
+    if not value:
+        raise ValueError("Investment ID is required")
+
+    if value.isdigit():
+        numeric_id = int(value)
+        if numeric_id > 0:
+            return numeric_id
+
+    result = db.execute(
+        text(
+            """
+            SELECT id
+            FROM public.tn_investment
+            WHERE investment_id = :p_investment_id
+            LIMIT 1
+            """
+        ),
+        {"p_investment_id": value},
+    )
+
+    row = result.first()
+
+    if not row:
+        raise ValueError(f"Investment {value} not found")
+
+    return int(row[0])
 
 
 def get_all_investments(
@@ -97,9 +130,7 @@ def get_investment_details(
             )
             """
         ),
-        {
-            "p_investment_id": investment_id,
-        },
+        {"p_investment_id": investment_id},
     )
 
     data = _row(result)
@@ -129,9 +160,7 @@ def get_investment_bond_details(
             )
             """
         ),
-        {
-            "p_investment_id": investment_id,
-        },
+        {"p_investment_id": investment_id},
     )
 
     data = _row(result)
@@ -342,116 +371,45 @@ def reject_investment(
     rejection_reason: str,
     remarks: Optional[str] = None,
 ):
-    investment = db.execute(
+    numeric_id = _get_numeric_investment_id(
+        db=db,
+        investment_id=investment_id,
+    )
+
+    reason = (rejection_reason or "").strip()
+
+    if not reason:
+        raise ValueError("Rejection reason is required")
+
+    result = db.execute(
         text(
             """
-            SELECT id
-            FROM tn_investment
-            WHERE investment_id = :investment_id
-            LIMIT 1
+            SELECT *
+            FROM public.fn_admin_reject_investment(
+                CAST(:p_investment_id AS BIGINT),
+                CAST(:p_rejected_by AS BIGINT),
+                CAST(:p_rejection_reason AS VARCHAR),
+                CAST(:p_remarks AS VARCHAR)
+            )
             """
         ),
         {
-            "investment_id": investment_id,
+            "p_investment_id": numeric_id,
+            "p_rejected_by": rejected_by,
+            "p_rejection_reason": reason,
+            "p_remarks": remarks,
         },
-    ).first()
+    )
 
-    if not investment:
-        raise ValueError(
-            f"Investment {investment_id} not found"
-        )
+    data = _row(result)
 
-    numeric_investment_id = investment.id
+    db.commit()
 
-    try:
-        result = db.execute(
-            text(
-                """
-                SELECT *
-                FROM fn_admin_reject_investment(
-                    :p_investment_id,
-                    :p_rejected_by,
-                    :p_rejection_reason,
-                    :p_remarks
-                )
-                """
-            ),
-            {
-                "p_investment_id": numeric_investment_id,
-                "p_rejected_by": rejected_by,
-                "p_rejection_reason": rejection_reason,
-                "p_remarks": remarks,
-            },
-        )
-
-        function_data = _row(result)
-
-        db.execute(
-            text(
-                """
-                UPDATE tn_investment
-                SET
-                    investment_status_id = 4,
-                    approved_by = :rejected_by,
-                    approved_date = CURRENT_TIMESTAMP,
-                    remarks = :remarks
-                WHERE investment_id = :investment_id
-                """
-            ),
-            {
-                "investment_id": investment_id,
-                "rejected_by": rejected_by,
-                "remarks": (
-                    f"{remarks}\n"
-                    f"Rejection reason: {rejection_reason}"
-                    if remarks
-                    else f"Rejection reason: {rejection_reason}"
-                ),
-            },
-        )
-
-        db.commit()
-
-        fresh_status = db.execute(
-            text(
-                """
-                SELECT
-                    investment_id,
-                    investment_status_id,
-                    approved_by,
-                    approved_date,
-                    remarks
-                FROM tn_investment
-                WHERE investment_id = :investment_id
-                LIMIT 1
-                """
-            ),
-            {
-                "investment_id": investment_id,
-            },
-        ).first()
-
-        fresh_data = (
-            dict(fresh_status._mapping)
-            if fresh_status
-            else {}
-        )
-
-        if function_data:
-            function_data.update(fresh_data)
-            data = function_data
-        else:
-            data = fresh_data
-
-        return {
-            "success": True,
-            "message": "Investment rejected successfully",
-            "data": data,
-        }
-
-    except Exception:
-        db.rollback()
-        raise
+    return {
+        "success": True,
+        "message": "Investment rejected successfully",
+        "data": data,
+    }
 
 
 def get_pending_tenure_extensions(
@@ -495,14 +453,12 @@ def get_tenure_extension_details(
         text(
             """
             SELECT *
-            FROM fn_admin_get_tenure_extension_details(
+            FROM public.fn_admin_get_tenure_extension_details(
                 :p_request_id
             )
             """
         ),
-        {
-            "p_request_id": request_id,
-        },
+        {"p_request_id": request_id},
     )
 
     data = _row(result)
@@ -519,6 +475,41 @@ def get_tenure_extension_details(
     }
 
 
+def submit_tenure_extension(
+    db: Session,
+    request_id: int,
+    submitted_by: int,
+    remarks: Optional[str] = None,
+):
+    result = db.execute(
+        text(
+            """
+            SELECT *
+            FROM public.fn_admin_submit_tenure_extension(
+                :p_request_id,
+                :p_submitted_by,
+                :p_remarks
+            )
+            """
+        ),
+        {
+            "p_request_id": request_id,
+            "p_submitted_by": submitted_by,
+            "p_remarks": remarks,
+        },
+    )
+
+    data = _row(result)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Tenure extension request sent to Super Admin successfully",
+        "data": data,
+    }
+
+
 def approve_tenure_extension(
     db: Session,
     request_id: int,
@@ -529,7 +520,7 @@ def approve_tenure_extension(
         text(
             """
             SELECT *
-            FROM fn_admin_approve_tenure_extension(
+            FROM public.fn_admin_approve_tenure_extension(
                 :p_request_id,
                 :p_approved_by,
                 :p_remarks
@@ -564,7 +555,7 @@ def reject_tenure_extension(
         text(
             """
             SELECT *
-            FROM fn_admin_reject_tenure_extension(
+            FROM public.fn_admin_reject_tenure_extension(
                 :p_request_id,
                 :p_rejected_by,
                 :p_remarks
@@ -633,7 +624,7 @@ def get_monthly_interest_details(
         text(
             """
             SELECT *
-            FROM fn_admin_get_monthly_interest_details(
+            FROM public.fn_admin_get_monthly_interest_details(
                 :p_interest_schedule_id
             )
             """
@@ -666,7 +657,7 @@ def approve_monthly_interest(
         text(
             """
             SELECT *
-            FROM fn_admin_approve_monthly_interest(
+            FROM public.fn_admin_approve_monthly_interest(
                 :p_interest_schedule_id,
                 :p_approved_by
             )
@@ -696,11 +687,16 @@ def reject_monthly_interest(
     rejection_reason: str,
     remarks: Optional[str] = None,
 ):
+    reason = (rejection_reason or "").strip()
+
+    if not reason:
+        raise ValueError("Rejection reason is required")
+
     result = db.execute(
         text(
             """
             SELECT *
-            FROM fn_admin_reject_monthly_interest(
+            FROM public.fn_admin_reject_monthly_interest(
                 :p_interest_schedule_id,
                 :p_rejected_by,
                 :p_rejection_reason,
@@ -711,7 +707,7 @@ def reject_monthly_interest(
         {
             "p_interest_schedule_id": interest_schedule_id,
             "p_rejected_by": rejected_by,
-            "p_rejection_reason": rejection_reason,
+            "p_rejection_reason": reason,
             "p_remarks": remarks,
         },
     )
@@ -736,7 +732,7 @@ def approve_all_monthly_interest(
         text(
             """
             SELECT *
-            FROM fn_admin_approve_all_monthly_interest(
+            FROM public.fn_admin_approve_all_monthly_interest(
                 :p_approved_by,
                 :p_interest_due_date
             )
@@ -768,7 +764,7 @@ def create_tenure_timeout_settlement(
         text(
             """
             SELECT *
-            FROM fn_create_tenure_timeout_settlement(
+            FROM public.fn_create_tenure_timeout_settlement(
                 :p_investment_id,
                 :p_created_by
             )
@@ -788,4 +784,76 @@ def create_tenure_timeout_settlement(
         "success": True,
         "message": "Tenure timeout settlement created successfully",
         "data": data,
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_all_tenure_extensions_for_admin(
+    db: Session,
+    branch_id: int,
+    limit: int = 100,
+    offset: int = 0,
+):
+    result = db.execute(
+        text(
+            """
+            SELECT *
+            FROM public.fn_superadmin_get_all_tenure_extensions(
+                CAST(:p_branch_id AS INTEGER),
+                CAST(:p_limit AS INTEGER),
+                CAST(:p_offset AS INTEGER)
+            )
+            """
+        ),
+        {
+            "p_branch_id": branch_id,
+            "p_limit": limit,
+            "p_offset": offset,
+        },
+    )
+
+    data = _rows(result)
+
+    return {
+        "success": True,
+        "data": data,
+        "total": len(data),
     }

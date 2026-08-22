@@ -512,7 +512,8 @@ def get_preclose_requests(
                 ) IN (
                     'pending',
                     'pending approval',
-                    'submitted'
+                    'submitted',
+                    'pending super admin'
                 )
 
                 AND (
@@ -560,6 +561,414 @@ def get_preclose_requests(
                 "Failed to fetch pre-close requests: "
                 f"{str(exc)}"
             ),
+        )
+
+
+
+@router.get("/tenure-timeout/{settlement_id}")
+def get_tenure_timeout_settlement_details(
+    settlement_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    branch_id = get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT
+                    s.id AS settlement_id,
+                    s.investment_id,
+                    s.settlement_type,
+                    s.principal_amount,
+                    s.interest_amount,
+                    s.penalty_amount,
+                    s.gst_amount,
+                    s.net_settlement_amount,
+                    s.settlement_status_id,
+                    ms.status_name,
+                    s.approved_by,
+                    s.approved_date,
+                    s.paid_by,
+                    s.paid_date,
+                    s.remarks,
+                    s.created_by,
+                    s.created_date,
+                    s.modified_by,
+                    s.modified_date,
+                    i.investment_id AS investment_code,
+                    i.investment_amount,
+                    i.expected_interest_amount,
+                    i.investment_date,
+                    i.maturity_date,
+                    b.bond_id AS bond_number,
+                    ir.id AS investor_registration_id,
+                    ir.investor_id,
+                    u.full_name AS investor_name,
+                    br.branch_name,
+                    br.city_name
+                FROM public.tn_settlement s
+                LEFT JOIN public.master_settlement_status ms
+                    ON ms.id = s.settlement_status_id
+                LEFT JOIN public.tn_investment i
+                    ON i.id = s.investment_id
+                LEFT JOIN public.tn_bond b
+                    ON b.investment_id = i.id
+                LEFT JOIN public.tn_investor_registration ir
+                    ON ir.id = i.investor_registration_id
+                LEFT JOIN public.tn_application_user u
+                    ON u.id = ir.user_id
+                LEFT JOIN public.master_branch br
+                    ON br.id = ir.branch_id
+                WHERE s.id = :settlement_id
+                  AND s.settlement_type = 'TENURE_TIMEOUT'
+                  AND (
+                      :branch_id IS NULL
+                      OR ir.branch_id = :branch_id
+                  )
+                """,
+            ),
+            {
+                "settlement_id": settlement_id,
+                "branch_id": branch_id,
+            },
+        )
+
+        row = result.mappings().first()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Tenure timeout settlement not found.",
+            )
+
+        return {
+            "success": True,
+            "data": dict(row),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch tenure timeout settlement details: {exc}",
+        )
+
+
+@router.put("/tenure-timeout/{settlement_id}/approve")
+def approve_tenure_timeout_settlement(
+    settlement_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    admin_id = get_current_admin_id(current_user)
+    get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT *
+                FROM public.fn_admin_approve_tenure_timeout_settlement(
+                    :p_settlement_id,
+                    :p_approved_by
+                )
+                """
+            ),
+            {
+                "p_settlement_id": settlement_id,
+                "p_approved_by": admin_id,
+            },
+        )
+
+        row = result.mappings().first()
+        db.commit()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="No response returned from tenure timeout approval function.",
+            )
+
+        if not row.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=row.get("message") or "Unable to send settlement to Super Admin.",
+            )
+
+        return {
+            "success": True,
+            "message": row.get("message"),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send tenure timeout settlement to Super Admin: {exc}",
+        )
+
+
+@router.put("/tenure-timeout/{settlement_id}/reject")
+def reject_tenure_timeout_settlement(
+    settlement_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    admin_id = get_current_admin_id(current_user)
+    get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT *
+                FROM public.fn_admin_reject_tenure_timeout_settlement(
+                    :p_settlement_id,
+                    :p_rejected_by
+                )
+                """
+            ),
+            {
+                "p_settlement_id": settlement_id,
+                "p_rejected_by": admin_id,
+            },
+        )
+
+        row = result.mappings().first()
+        db.commit()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="No response returned from tenure timeout rejection function.",
+            )
+
+        if not row.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=row.get("message") or "Unable to reject tenure timeout settlement.",
+            )
+
+        return {
+            "success": True,
+            "message": row.get("message"),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reject tenure timeout settlement: {exc}",
+        )
+
+
+@router.get("/preclose/{request_id}")
+def get_preclose_request_details(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    branch_id = get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT
+                    pr.id AS request_id,
+                    pr.investment_id,
+                    pr.request_status_id,
+                    prs.status_name AS request_status,
+                    pr.preclose_reason,
+                    pr.requested_date,
+                    pr.approved_by,
+                    pr.approved_date,
+                    pr.remarks,
+                    pr.created_by,
+                    pr.created_date,
+                    i.investment_id AS investment_code,
+                    i.investment_amount,
+                    i.expected_interest_amount,
+                    i.investment_date,
+                    i.maturity_date,
+                    b.bond_id AS bond_number,
+                    ir.id AS investor_registration_id,
+                    ir.investor_id,
+                    u.full_name AS investor_name,
+                    br.branch_name,
+                    br.city_name
+                FROM public.tn_preclose_request pr
+                LEFT JOIN public.master_investor_request_status prs
+                    ON prs.id = pr.request_status_id
+                LEFT JOIN public.tn_investment i
+                    ON i.id = pr.investment_id
+                LEFT JOIN public.tn_bond b
+                    ON b.investment_id = i.id
+                LEFT JOIN public.tn_investor_registration ir
+                    ON ir.id = i.investor_registration_id
+                LEFT JOIN public.tn_application_user u
+                    ON u.id = ir.user_id
+                LEFT JOIN public.master_branch br
+                    ON br.id = ir.branch_id
+                WHERE pr.id = :request_id
+                  AND (
+                      :branch_id IS NULL
+                      OR ir.branch_id = :branch_id
+                  )
+                """,
+            ),
+            {
+                "request_id": request_id,
+                "branch_id": branch_id,
+            },
+        )
+
+        row = result.mappings().first()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Pre-close request not found.",
+            )
+
+        return {
+            "success": True,
+            "data": dict(row),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch pre-close request details: {exc}",
+        )
+
+
+@router.put("/preclose/{request_id}/approve")
+def approve_preclose_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    admin_id = get_current_admin_id(current_user)
+    get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT *
+                FROM public.fn_admin_approve_preclose_settlement(
+                    :p_preclose_request_id,
+                    :p_approved_by
+                )
+                """
+            ),
+            {
+                "p_preclose_request_id": request_id,
+                "p_approved_by": admin_id,
+            },
+        )
+
+        row = result.mappings().first()
+        db.commit()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="No response returned from pre-close approval function.",
+            )
+
+        if not row.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=row.get("message") or "Unable to send pre-close request to Super Admin.",
+            )
+
+        return {
+            "success": True,
+            "message": row.get("message"),
+            "settlement_id": row.get("settlement_id"),
+            "net_settlement_amount": row.get("net_settlement_amount"),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send pre-close request to Super Admin: {exc}",
+        )
+
+
+@router.put("/preclose/{request_id}/reject")
+def reject_preclose_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin_or_superadmin),
+):
+    admin_id = get_current_admin_id(current_user)
+    get_admin_branch_id(current_user)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT *
+                FROM public.fn_admin_reject_preclose_request(
+                    :p_preclose_request_id,
+                    :p_rejected_by
+                )
+                """
+            ),
+            {
+                "p_preclose_request_id": request_id,
+                "p_rejected_by": admin_id,
+            },
+        )
+
+        row = result.mappings().first()
+        db.commit()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="No response returned from pre-close rejection function.",
+            )
+
+        if not row.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=row.get("message") or "Unable to reject pre-close request.",
+            )
+
+        return {
+            "success": True,
+            "message": row.get("message"),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reject pre-close request: {exc}",
         )
 
 

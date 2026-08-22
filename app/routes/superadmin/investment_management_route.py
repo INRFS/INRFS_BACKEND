@@ -2,8 +2,6 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi import status
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,11 +10,9 @@ from app.dependencies import get_current_user
 from app.schemas.admin.investment_management_schema import (
     ApproveAllMonthlyInterestRequest,
     InvestmentActionResponse,
-    InvestmentApproveRequest,
     InvestmentBondDetailsResponse,
     InvestmentDetailsResponse,
     InvestmentManagementResponse,
-    InvestmentRejectRequest,
     MonthlyInterestActionResponse,
     MonthlyInterestDetailsResponse,
     MonthlyInterestResponse,
@@ -29,9 +25,8 @@ from app.schemas.admin.investment_management_schema import (
 
 from app.services.admin.investment_management_service import (
     approve_all_monthly_interest,
-    approve_investment,
     approve_monthly_interest,
-    approve_tenure_extension,
+    # approve_tenure_extension,
     create_tenure_timeout_settlement,
     get_all_investments,
     get_investment_bond_details,
@@ -41,15 +36,13 @@ from app.services.admin.investment_management_service import (
     get_pending_investments,
     get_pending_tenure_extensions,
     get_tenure_extension_details,
-    reject_investment,
     reject_monthly_interest,
-    reject_tenure_extension,
-    submit_tenure_extension,
+    # reject_tenure_extension,
 
 
 
 
-    get_all_tenure_extensions_for_admin
+    
 )
 
 
@@ -60,55 +53,83 @@ router = APIRouter(
 
 
 def get_role_name(current_user):
-    role = getattr(current_user, "role", None)
+
+    role = getattr(
+        current_user,
+        "role",
+        None,
+    )
 
     if isinstance(role, str):
         return role.strip().upper()
 
     if role is not None:
-        role_name = getattr(role, "role_name", None)
-        if role_name:
-            return str(role_name).strip().upper()
+        role_name = getattr(
+            role,
+            "role_name",
+            None,
+        )
 
-    role_name = getattr(current_user, "role_name", None)
+        if role_name:
+            return str(
+                role_name
+            ).strip().upper()
+
+    role_name = getattr(
+        current_user,
+        "role_name",
+        None,
+    )
 
     if role_name:
-        return str(role_name).strip().upper()
+        return str(
+            role_name
+        ).strip().upper()
 
     return ""
 
 
 def get_admin_branch_id(current_user):
-    role_name = get_role_name(current_user)
+
+    role_name = get_role_name(
+        current_user
+    )
 
     if role_name == "SUPERADMIN":
         return None
 
     if role_name != "ADMIN":
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Admin access required",
         )
 
-    branch_id = getattr(current_user, "branch_id", None)
+    branch_id = getattr(
+        current_user,
+        "branch_id",
+        None,
+    )
 
     if branch_id is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Branch is not assigned to this admin",
         )
 
     try:
         branch_id = int(branch_id)
-    except (TypeError, ValueError):
+    except (
+        TypeError,
+        ValueError,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Invalid admin branch",
         )
 
     if branch_id <= 0:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Invalid admin branch",
         )
 
@@ -118,23 +139,33 @@ def get_admin_branch_id(current_user):
 def require_admin(
     current_user=Depends(get_current_user),
 ):
+
     if current_user is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Authentication required",
         )
 
-    if not getattr(current_user, "is_active", True):
+    if not getattr(
+        current_user,
+        "is_active",
+        True,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="User account is inactive",
         )
 
-    role_name = get_role_name(current_user)
+    role_name = get_role_name(
+        current_user
+    )
 
-    if role_name not in ("ADMIN", "SUPERADMIN"):
+    if role_name not in (
+        "ADMIN",
+        "SUPERADMIN",
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=403,
             detail="Admin access required",
         )
 
@@ -146,13 +177,25 @@ def require_admin(
     response_model=InvestmentManagementResponse,
 )
 def get_investments(
-    bond_id: Optional[str] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    bond_id: Optional[str] = Query(
+        default=None
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    branch_id = get_admin_branch_id(current_user)
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
 
     return get_all_investments(
         db=db,
@@ -168,12 +211,22 @@ def get_investments(
     response_model=InvestmentManagementResponse,
 )
 def get_pending_investment_list(
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    branch_id = get_admin_branch_id(current_user)
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
 
     return get_pending_investments(
         db=db,
@@ -192,6 +245,7 @@ def get_investment_bond(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_investment_bond_details(
         db=db,
         investment_id=investment_id,
@@ -207,127 +261,12 @@ def get_investment(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_investment_details(
         db=db,
         investment_id=investment_id,
     )
 
-
-@router.put(
-    "/investments/{investment_id}/approve",
-    response_model=InvestmentActionResponse,
-)
-def approve_investment_route(
-    investment_id: str,
-    request: InvestmentApproveRequest,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    approved_by = getattr(current_user, "id", None)
-
-    if not approved_by:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Admin user ID not found",
-        )
-
-    try:
-        return approve_investment(
-            db=db,
-            investment_id=investment_id,
-            interest_rate=request.interest_rate,
-            approved_by=approved_by,
-            remarks=request.remarks,
-        )
-
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        )
-
-    except SQLAlchemyError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        )
-
-
-@router.get(
-    "/tenure-extensions/all",
-    response_model=TenureExtensionResponse,
-)
-def get_all_tenure_extensions(
-    limit: int = Query(default=100, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    branch_id = get_admin_branch_id(current_user)
-
-    return get_all_tenure_extensions_for_admin(
-        db=db,
-        branch_id=branch_id,
-        limit=limit,
-        offset=offset,
-    )
-
-@router.put(
-    "/investments/{investment_id}/reject",
-    response_model=InvestmentActionResponse,
-)
-def reject_investment_route(
-    investment_id: str,
-    request: InvestmentRejectRequest,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    rejected_by = getattr(current_user, "id", None)
-
-    if not rejected_by:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Admin user ID not found",
-        )
-
-    try:
-        return reject_investment(
-            db=db,
-            investment_id=investment_id,
-            rejected_by=rejected_by,
-            rejection_reason=request.rejection_reason,
-            remarks=request.remarks,
-        )
-
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        )
-
-    except SQLAlchemyError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        )
 
 
 @router.get(
@@ -335,12 +274,22 @@ def reject_investment_route(
     response_model=TenureExtensionResponse,
 )
 def get_pending_extensions(
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    branch_id = get_admin_branch_id(current_user)
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
 
     return get_pending_tenure_extensions(
         db=db,
@@ -359,6 +308,7 @@ def get_extension_details(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_tenure_extension_details(
         db=db,
         request_id=request_id,
@@ -366,51 +316,65 @@ def get_extension_details(
 
 
 @router.put(
-    "/tenure-extensions/{request_id}/submit",
+    "/tenure-extensions/{request_id}/approve",
     response_model=InvestmentActionResponse,
 )
-def submit_extension(
+def approve_extension(
     request_id: int,
     request: TenureExtensionActionRequest,
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    submitted_by = getattr(current_user, "id", None)
 
-    if not submitted_by:
+    approved_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
+
+    if not approved_by:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Admin user ID not found",
         )
 
-    try:
-        return submit_tenure_extension(
-            db=db,
-            request_id=request_id,
-            submitted_by=submitted_by,
-            remarks=request.remarks,
+    return approve_tenure_extension(
+        db=db,
+        request_id=request_id,
+        approved_by=approved_by,
+        remarks=request.remarks,
+    )
+
+
+@router.put(
+    "/tenure-extensions/{request_id}/reject",
+    response_model=InvestmentActionResponse,
+)
+def reject_extension(
+    request_id: int,
+    request: TenureExtensionActionRequest,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+
+    rejected_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
+
+    if not rejected_by:
+        raise HTTPException(
+            status_code=401,
+            detail="Admin user ID not found",
         )
 
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        )
-
-    except SQLAlchemyError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        )
+    return reject_tenure_extension(
+        db=db,
+        request_id=request_id,
+        rejected_by=rejected_by,
+        remarks=request.remarks,
+    )
 
 
 @router.get(
@@ -418,13 +382,25 @@ def submit_extension(
     response_model=MonthlyInterestResponse,
 )
 def get_monthly_interest_route(
-    interest_due_date: Optional[date] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    interest_due_date: Optional[date] = Query(
+        default=None
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    branch_id = get_admin_branch_id(current_user)
+
+    branch_id = get_admin_branch_id(
+        current_user
+    )
 
     return get_monthly_interest(
         db=db,
@@ -444,6 +420,7 @@ def get_monthly_interest_details_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+
     return get_monthly_interest_details(
         db=db,
         interest_schedule_id=interest_schedule_id,
@@ -459,11 +436,16 @@ def approve_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    approved_by = getattr(current_user, "id", None)
+
+    approved_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
 
     if not approved_by:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Admin user ID not found",
         )
 
@@ -484,11 +466,16 @@ def reject_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    rejected_by = getattr(current_user, "id", None)
+
+    rejected_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
 
     if not rejected_by:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Admin user ID not found",
         )
 
@@ -510,11 +497,16 @@ def approve_all_monthly_interest_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    approved_by = getattr(current_user, "id", None)
+
+    approved_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
 
     if not approved_by:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Admin user ID not found",
         )
 
@@ -522,28 +514,6 @@ def approve_all_monthly_interest_route(
         db=db,
         approved_by=approved_by,
         interest_due_date=request.interest_due_date,
-    )
-
-
-
-
-@router.get(
-    "/tenure-extensions/all",
-    response_model=TenureExtensionResponse,
-)
-def get_all_tenure_extensions(
-    limit: int = Query(default=100, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    branch_id = get_admin_branch_id(current_user)
-
-    return get_all_tenure_extensions_for_admin(
-        db=db,
-        branch_id=branch_id,
-        limit=limit,
-        offset=offset,
     )
 
 
@@ -556,11 +526,16 @@ def create_settlement_route(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    created_by = getattr(current_user, "id", None)
+
+    created_by = getattr(
+        current_user,
+        "id",
+        None,
+    )
 
     if not created_by:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Admin user ID not found",
         )
 
@@ -569,3 +544,30 @@ def create_settlement_route(
         investment_id=investment_id,
         created_by=created_by,
     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
