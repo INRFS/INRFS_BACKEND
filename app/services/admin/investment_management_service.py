@@ -648,6 +648,72 @@ def get_monthly_interest_details(
     }
 
 
+
+
+
+def send_monthly_interest_for_approval(
+    db: Session,
+    interest_schedule_id: int,
+    submitted_by: int,
+):
+    result = db.execute(
+        text(
+            """
+            SELECT *
+            FROM public.fn_admin_submit_monthly_interest(
+                :p_interest_schedule_id,
+                :p_submitted_by
+            )
+            """
+        ),
+        {
+            "p_interest_schedule_id": interest_schedule_id,
+            "p_submitted_by": submitted_by,
+        },
+    )
+
+    data = _row(result)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Monthly interest sent to Super Admin for approval",
+        "data": data,
+    }
+
+
+def send_all_monthly_interest_for_approval(
+    db: Session,
+    submitted_by: int,
+    interest_due_date: date,
+):
+    result = db.execute(
+        text(
+            """
+            SELECT *
+            FROM public.fn_admin_submit_all_monthly_interest(
+                :p_submitted_by,
+                :p_interest_due_date
+            )
+            """
+        ),
+        {
+            "p_submitted_by": submitted_by,
+            "p_interest_due_date": interest_due_date,
+        },
+    )
+
+    data = _rows(result)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Monthly interest payments sent to Super Admin for approval",
+        "data": data,
+    }
+
 def approve_monthly_interest(
     db: Session,
     interest_schedule_id: int,

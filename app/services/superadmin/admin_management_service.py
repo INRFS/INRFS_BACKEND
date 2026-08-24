@@ -54,6 +54,10 @@ def _fetch_one(
     return rows[0] if rows else {}
 
 
+# =========================================================
+# ADMIN LIST
+# =========================================================
+
 def get_superadmin_admins(
     db: Session,
     search: str | None = None,
@@ -66,6 +70,10 @@ def get_superadmin_admins(
         },
     )
 
+
+# =========================================================
+# ADMIN DETAILS
+# =========================================================
 
 def get_superadmin_admin_details(
     db: Session,
@@ -80,6 +88,10 @@ def get_superadmin_admin_details(
     )
 
 
+# =========================================================
+# MASTER BRANCHES
+# =========================================================
+
 def get_superadmin_master_branches(
     db: Session,
 ):
@@ -88,6 +100,10 @@ def get_superadmin_master_branches(
         function_name="fn_superadmin_get_master_branches",
     )
 
+
+# =========================================================
+# ROLES
+# =========================================================
 
 def get_superadmin_roles(
     db: Session,
@@ -111,6 +127,10 @@ def get_superadmin_roles(
     ]
 
 
+# =========================================================
+# STATUSES
+# =========================================================
+
 def get_superadmin_statuses(
     db: Session,
 ):
@@ -133,6 +153,10 @@ def get_superadmin_statuses(
     ]
 
 
+# =========================================================
+# CREATE ADMIN
+# =========================================================
+
 def create_superadmin_admin(
     db: Session,
     full_name: str,
@@ -141,6 +165,8 @@ def create_superadmin_admin(
     branch_id: int,
     role_id: int,
     status_id: int,
+    password: str,
+    created_by: int,
 ):
     result = db.execute(
         text(
@@ -152,7 +178,9 @@ def create_superadmin_admin(
                 :p_mobile,
                 :p_branch_id,
                 :p_role_id,
-                :p_status_id
+                :p_status_id,
+                :p_password,
+                :p_created_by
             )
             """
         ),
@@ -163,19 +191,42 @@ def create_superadmin_admin(
             "p_branch_id": branch_id,
             "p_role_id": role_id,
             "p_status_id": status_id,
+            "p_password": password,
+            "p_created_by": created_by,
         },
     )
 
-    rows = result.mappings().all()
+    row = result.mappings().first()
+
+    if not row:
+        db.rollback()
+
+        raise ValueError(
+            "Admin creation failed."
+        )
+
+    data = dict(row)
+
+    # PostgreSQL function can return
+    # success = false for validation errors.
+    if not data.get("success"):
+        db.rollback()
+
+        raise ValueError(
+            data.get(
+                "message",
+                "Unable to create admin.",
+            )
+        )
 
     db.commit()
 
-    return (
-        dict(rows[0])
-        if rows
-        else {}
-    )
+    return data
 
+
+# =========================================================
+# UPDATE ADMIN
+# =========================================================
 
 def update_superadmin_admin(
     db: Session,
@@ -213,16 +264,35 @@ def update_superadmin_admin(
         },
     )
 
-    rows = result.mappings().all()
+    row = result.mappings().first()
+
+    if not row:
+        db.rollback()
+
+        raise ValueError(
+            "Admin update failed."
+        )
+
+    data = dict(row)
+
+    if data.get("success") is False:
+        db.rollback()
+
+        raise ValueError(
+            data.get(
+                "message",
+                "Unable to update admin.",
+            )
+        )
 
     db.commit()
 
-    return (
-        dict(rows[0])
-        if rows
-        else {}
-    )
+    return data
 
+
+# =========================================================
+# SUSPEND ADMIN
+# =========================================================
 
 def suspend_superadmin_admin(
     db: Session,
@@ -245,15 +315,28 @@ def suspend_superadmin_admin(
         },
     )
 
-    rows = result.mappings().all()
+    row = result.mappings().first()
 
-    db.commit()
+    if not row:
+        db.rollback()
 
-    return (
-        dict(rows[0])
-        if rows
-        else {
+        return {
             "success": True,
             "admin_id": admin_id,
         }
-    )
+
+    data = dict(row)
+
+    if data.get("success") is False:
+        db.rollback()
+
+        raise ValueError(
+            data.get(
+                "message",
+                "Unable to suspend admin.",
+            )
+        )
+
+    db.commit()
+
+    return data

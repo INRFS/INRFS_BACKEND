@@ -121,7 +121,6 @@ def get_payment_queue(
         offset=offset,
     )
 
-
 def get_monthly_payment_queue(
     db: Session,
     payment_type: Optional[str] = None,
@@ -147,6 +146,7 @@ def get_monthly_payment_queue(
     )
 
     return [dict(row) for row in result.mappings().all()]
+
 
 
 def get_payment_details(
@@ -197,7 +197,6 @@ def get_payment_details(
     row = result.mappings().first()
     return dict(row) if row else None
 
-
 def approve_payment(
     db: Session,
     source_id: int,
@@ -207,6 +206,145 @@ def approve_payment(
     normalized = _normalize_payment_type(payment_type)
 
     try:
+
+        # ============================================================
+        # MONTHLY INTEREST
+        # ============================================================
+        # Super Admin approval only.
+        # Admin has already moved the record to "Awaiting Approval".
+        # ============================================================
+        if normalized in {
+            "monthly interest",
+            "monthly_interest",
+            "monthlyinterest",
+        }:
+
+            # Get current payment status
+            current_result = db.execute(
+                text(
+                    """
+                    SELECT
+                        ins.id,
+                        ins.payment_status_id,
+                        ps.payment_status_name
+                    FROM public.tn_interest_schedule ins
+                    INNER JOIN public.master_payment_status ps
+                        ON ps.id = ins.payment_status_id
+                    WHERE ins.id = :p_source_id
+                    FOR UPDATE
+                    """
+                ),
+                {
+                    "p_source_id": source_id,
+                },
+            ).mappings().first()
+
+            if not current_result:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Monthly interest payment not found.",
+                )
+
+            current_status = str(
+                current_result["payment_status_name"] or ""
+            ).strip()
+
+            # Super Admin can approve only Admin-submitted requests
+            if current_status.lower() != "awaiting approval":
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Monthly interest payment must be in "
+                        "'Awaiting Approval' status before Super Admin approval. "
+                        f"Current status: {current_status or 'Unknown'}."
+                    ),
+                )
+
+            # Find Approved status ID dynamically
+            approved_status_result = db.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM public.master_payment_status
+                    WHERE LOWER(TRIM(payment_status_name))
+                        = LOWER(TRIM('Approved'))
+                    LIMIT 1
+                    """
+                )
+            ).mappings().first()
+
+            if not approved_status_result:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "'Approved' status is not configured "
+                        "in master_payment_status."
+                    ),
+                )
+
+            approved_status_id = approved_status_result["id"]
+
+            # --------------------------------------------------------
+            # FINAL SUPER ADMIN APPROVAL
+            # --------------------------------------------------------
+            result = db.execute(
+                text(
+                    """
+                    UPDATE public.tn_interest_schedule
+                    SET
+                        payment_status_id = :p_status_id,
+                        superadmin_approved_by = :p_approved_by,
+                        approved_date = CURRENT_TIMESTAMP,
+                        modified_by = :p_approved_by,
+                        modified_date = CURRENT_TIMESTAMP
+                    WHERE id = :p_source_id
+                      AND payment_status_id = :p_current_status_id
+                    RETURNING
+                        id AS source_id,
+                        payment_status_id,
+                        superadmin_approved_by,
+                        approved_date,
+                        modified_by,
+                        modified_date
+                    """
+                ),
+                {
+                    "p_status_id": approved_status_id,
+                    "p_approved_by": approved_by,
+                    "p_source_id": source_id,
+                    "p_current_status_id": current_result[
+                        "payment_status_id"
+                    ],
+                },
+            ).mappings().first()
+
+            if not result:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Monthly interest payment could not be approved. "
+                        "The status may have changed already."
+                    ),
+                )
+
+            db.commit()
+
+            return {
+                "success": True,
+                "source_id": source_id,
+                "payment_type": "MONTHLY_INTEREST",
+                "status": "Approved",
+                "approved_by": approved_by,
+                "message": (
+                    "Monthly interest payment approved successfully."
+                ),
+            }
+
+        # ============================================================
+        # PRE-CLOSE
+        # ============================================================
+        # DO NOT CHANGE
+        # ============================================================
         if normalized in {
             "pre-close settlement",
             "preclose settlement",
@@ -219,6 +357,11 @@ def approve_payment(
                 approved_by=approved_by,
             )
 
+        # ============================================================
+        # TENURE TIMEOUT / TENURE SETTLEMENT
+        # ============================================================
+        # DO NOT CHANGE
+        # ============================================================
         if normalized in {
             "tenure settlement",
             "tenure timeout",
@@ -231,6 +374,9 @@ def approve_payment(
                 approved_by=approved_by,
             )
 
+        # ============================================================
+        # FALLBACK - KEEP EXISTING BEHAVIOUR
+        # ============================================================
         result = db.execute(
             text(
                 """
@@ -250,6 +396,7 @@ def approve_payment(
         )
 
         row = result.mappings().first()
+
         db.commit()
 
         return dict(row) if row else None
@@ -257,10 +404,10 @@ def approve_payment(
     except HTTPException:
         db.rollback()
         raise
+
     except Exception:
         db.rollback()
         raise
-
 
 def mark_payment_paid(
     db: Session,

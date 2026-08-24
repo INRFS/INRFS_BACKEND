@@ -168,30 +168,15 @@ class TenureRejectAction(BaseModel):
     remarks: str
 
 
-
-@router.get(
-    "/superadmin/payments"
-)
+@router.get("/superadmin/payments")
 def payment_queue(
-    payment_type: Optional[str] = Query(
-        default="All"
-    ),
-    limit: int = Query(
-        default=100,
-        ge=1,
-        le=500,
-    ),
-    offset: int = Query(
-        default=0,
-        ge=0,
-    ),
+    payment_type: Optional[str] = Query(default="All"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(
-        require_superadmin
-    ),
+    current_user: dict = Depends(require_superadmin),
 ):
     try:
-
         payments = get_payment_queue(
             db=db,
             payment_type=payment_type or "All",
@@ -206,15 +191,12 @@ def payment_queue(
         }
 
     except Exception as exc:
-
         db.rollback()
 
         raise HTTPException(
             status_code=500,
             detail=str(exc),
         )
-
-
 
 @router.get(
     "/superadmin/tenure-extensions"

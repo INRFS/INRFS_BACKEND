@@ -16,6 +16,8 @@ from pydantic import BaseModel, EmailStr
 
 from sqlalchemy.orm import Session
 
+from pwdlib import PasswordHash
+
 from app.database import get_db
 from app.utils.auth_utils import decode_access_token
 
@@ -38,6 +40,12 @@ router = APIRouter(
 
 security = HTTPBearer()
 
+password_hash = PasswordHash.recommended()
+
+
+# =========================================================
+# REQUEST MODELS
+# =========================================================
 
 class AdminCreateRequest(BaseModel):
     full_name: str
@@ -45,7 +53,8 @@ class AdminCreateRequest(BaseModel):
     mobile: str
     branch_id: int
     role_id: int
-    status_id: int = 1
+    status_id: int = 2
+    password: str
 
 
 class AdminUpdateRequest(BaseModel):
@@ -56,6 +65,10 @@ class AdminUpdateRequest(BaseModel):
     role_id: int
     status_id: int
 
+
+# =========================================================
+# AUTH
+# =========================================================
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(
@@ -115,6 +128,10 @@ def require_superadmin(
     return current_user
 
 
+# =========================================================
+# GET ADMINS
+# =========================================================
+
 @router.get("")
 def get_admins(
     search: Optional[str] = Query(
@@ -144,6 +161,10 @@ def get_admins(
     }
 
 
+# =========================================================
+# BRANCH FILTER
+# =========================================================
+
 @router.get("/filters/branches")
 def get_admin_branches(
     db: Session = Depends(get_db),
@@ -160,6 +181,10 @@ def get_admin_branches(
         "data": data,
     }
 
+
+# =========================================================
+# ROLE FILTER
+# =========================================================
 
 @router.get("/filters/roles")
 def get_admin_roles(
@@ -178,6 +203,10 @@ def get_admin_roles(
     }
 
 
+# =========================================================
+# STATUS FILTER
+# =========================================================
+
 @router.get("/filters/statuses")
 def get_admin_statuses(
     db: Session = Depends(get_db),
@@ -194,6 +223,10 @@ def get_admin_statuses(
         "data": data,
     }
 
+
+# =========================================================
+# ADMIN DETAILS
+# =========================================================
 
 @router.get("/{admin_id}")
 def get_admin_details(
@@ -226,6 +259,10 @@ def get_admin_details(
     }
 
 
+# =========================================================
+# CREATE ADMIN
+# =========================================================
+
 @router.post("")
 def create_admin(
     payload: AdminCreateRequest,
@@ -235,21 +272,106 @@ def create_admin(
     ),
 ):
     try:
+
+        # -----------------------------------------
+        # CREATED BY
+        # -----------------------------------------
+
+        user_id = current_user.get("sub")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="User ID missing from token.",
+            )
+
+        try:
+            created_by = int(user_id)
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid user ID in token.",
+            )
+
+        # -----------------------------------------
+        # CLEAN INPUT
+        # -----------------------------------------
+
+        full_name = payload.full_name.strip()
+        email = str(payload.email).strip().lower()
+        mobile = payload.mobile.strip()
+        password = payload.password.strip()
+
+        # -----------------------------------------
+        # VALIDATION
+        # -----------------------------------------
+
+        if not full_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Full name is required.",
+            )
+
+        if not mobile:
+            raise HTTPException(
+                status_code=400,
+                detail="Mobile number is required.",
+            )
+
+        if not password:
+            raise HTTPException(
+                status_code=400,
+                detail="Password is required.",
+            )
+
+        if len(password) < 8:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Password must be at least "
+                    "8 characters."
+                ),
+            )
+
+        # -----------------------------------------
+        # HASH PASSWORD
+        # -----------------------------------------
+
+        hashed_password = password_hash.hash(
+            password
+        )
+
+        # -----------------------------------------
+        # CREATE USER
+        # -----------------------------------------
+
         data = create_superadmin_admin(
             db=db,
-            full_name=payload.full_name,
-            email=str(payload.email),
-            mobile=payload.mobile,
+            full_name=full_name,
+            email=email,
+            mobile=mobile,
             branch_id=payload.branch_id,
             role_id=payload.role_id,
             status_id=payload.status_id,
+            password=hashed_password,
+            created_by=created_by,
         )
 
         return {
             "success": True,
-            "message": "Admin created successfully.",
+            "message": data.get(
+                "message",
+                "Admin created successfully.",
+            ),
             "data": data,
         }
+
+    except HTTPException:
+        raise
 
     except ValueError as exc:
         db.rollback()
@@ -262,11 +384,20 @@ def create_admin(
     except Exception as exc:
         db.rollback()
 
+        print(
+            "ADMIN CREATION ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
             status_code=500,
             detail=str(exc),
         )
 
+
+# =========================================================
+# UPDATE ADMIN
+# =========================================================
 
 @router.put("/{admin_id}")
 def update_admin(
@@ -284,6 +415,7 @@ def update_admin(
         )
 
     try:
+
         data = update_superadmin_admin(
             db=db,
             admin_id=admin_id,
@@ -297,7 +429,10 @@ def update_admin(
 
         return {
             "success": True,
-            "message": "Admin updated successfully.",
+            "message": data.get(
+                "message",
+                "Admin updated successfully.",
+            ),
             "data": data,
         }
 
@@ -312,11 +447,20 @@ def update_admin(
     except Exception as exc:
         db.rollback()
 
+        print(
+            "ADMIN UPDATE ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
             status_code=500,
             detail=str(exc),
         )
 
+
+# =========================================================
+# SUSPEND ADMIN
+# =========================================================
 
 @router.patch("/{admin_id}/suspend")
 def suspend_admin(
@@ -341,6 +485,7 @@ def suspend_admin(
         )
 
     try:
+
         data = suspend_superadmin_admin(
             db=db,
             admin_id=admin_id,
@@ -349,7 +494,10 @@ def suspend_admin(
 
         return {
             "success": True,
-            "message": "Admin suspended successfully.",
+            "message": data.get(
+                "message",
+                "Admin suspended successfully.",
+            ),
             "data": data,
         }
 
@@ -363,6 +511,11 @@ def suspend_admin(
 
     except Exception as exc:
         db.rollback()
+
+        print(
+            "ADMIN SUSPEND ERROR:",
+            repr(exc),
+        )
 
         raise HTTPException(
             status_code=500,

@@ -28,6 +28,8 @@ from app.services.admin.investment_management_service import (
     approve_monthly_interest,
     # approve_tenure_extension,
     create_tenure_timeout_settlement,
+    send_monthly_interest_for_approval,
+    send_all_monthly_interest_for_approval,
     get_all_investments,
     get_investment_bond_details,
     get_investment_details,
@@ -408,6 +410,60 @@ def get_monthly_interest_route(
         interest_due_date=interest_due_date,
         limit=limit,
         offset=offset,
+    )
+
+
+
+
+
+
+
+@router.put(
+    "/monthly-interest/{interest_schedule_id}/send-for-approval",
+    response_model=MonthlyInterestActionResponse,
+)
+def send_monthly_interest_for_approval_route(
+    interest_schedule_id: int,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    submitted_by = getattr(current_user, "id", None)
+
+    if not submitted_by:
+        raise HTTPException(
+            status_code=401,
+            detail="Admin user ID not found",
+        )
+
+    return send_monthly_interest_for_approval(
+        db=db,
+        interest_schedule_id=interest_schedule_id,
+        submitted_by=submitted_by,
+    )
+
+
+
+@router.put(
+    "/monthly-interest/send-all-for-approval",
+    response_model=MonthlyInterestActionResponse,
+)
+def send_all_monthly_interest_for_approval_route(
+    request: ApproveAllMonthlyInterestRequest,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    submitted_by = getattr(current_user, "id", None)
+
+    if not submitted_by:
+        raise HTTPException(
+            status_code=401,
+            detail="Admin user ID not found",
+        )
+
+    return send_all_monthly_interest_for_approval(
+        db=db,
+        submitted_by=submitted_by,
+        interest_due_date=request.interest_due_date,
     )
 
 
