@@ -36,7 +36,9 @@ from app.routes.superadmin.branch_management_route import router as superadmin_b
 from app.routes.superadmin.admin_management_route import router as admin_management_router
 from app.routes.superadmin.profile_route import router as superadmin_profile_router
 from app.routes.superadmin.payment_route import router as superadmin_payment_router
-
+from app.routes.superadmin.superadmin_reports_route import (
+    router as superadmin_reports_router,
+)
 
 
 
@@ -82,6 +84,9 @@ app.include_router(superadmin_branch_management_router)
 app.include_router(admin_management_router)
 app.include_router(superadmin_profile_router)
 app.include_router(superadmin_payment_router)
+app.include_router(
+    superadmin_reports_router
+)
 
 
 
