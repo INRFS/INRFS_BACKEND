@@ -180,6 +180,24 @@ class MasterUserStatus(Base):
     tn_application_user: Mapped[list['TnApplicationUser']] = relationship('TnApplicationUser', back_populates='user_status')
 
 
+class TnEmailOtp(Base):
+    __tablename__ = 'tn_email_otp'
+    __table_args__ = (
+        PrimaryKeyConstraint('id', name='tn_email_otp_pkey'),
+        Index('idx_tn_email_otp_email'),
+        Index('idx_tn_email_otp_expiry', 'expiry_date')
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    otp_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expiry_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
+    created_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    verified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+
 t_vw_admin_recent_investments = Table(
     'vw_admin_recent_investments', Base.metadata,
     Column('investment_id', String(20)),
@@ -247,6 +265,8 @@ class TnApplicationUser(Base):
     branch: Mapped[Optional['MasterBranch']] = relationship('MasterBranch', back_populates='tn_application_user')
     role: Mapped['MasterRole'] = relationship('MasterRole', back_populates='tn_application_user')
     user_status: Mapped['MasterUserStatus'] = relationship('MasterUserStatus', back_populates='tn_application_user')
+    tn_application_activity_log_performed_by_user: Mapped[list['TnApplicationActivityLog']] = relationship('TnApplicationActivityLog', foreign_keys='[TnApplicationActivityLog.performed_by_user_id]', back_populates='performed_by_user')
+    tn_application_activity_log_user: Mapped[list['TnApplicationActivityLog']] = relationship('TnApplicationActivityLog', foreign_keys='[TnApplicationActivityLog.user_id]', back_populates='user')
     tn_investor_registration_approved_by: Mapped[list['TnInvestorRegistration']] = relationship('TnInvestorRegistration', foreign_keys='[TnInvestorRegistration.approved_by]', back_populates='tn_application_user')
     tn_investor_registration_user: Mapped['TnInvestorRegistration'] = relationship('TnInvestorRegistration', uselist=False, foreign_keys='[TnInvestorRegistration.user_id]', back_populates='tn_application_user_user')
     tn_login_history: Mapped[list['TnLoginHistory']] = relationship('TnLoginHistory', back_populates='user')
@@ -260,6 +280,8 @@ class TnApplicationUser(Base):
     tn_bond_modified_by: Mapped[list['TnBond']] = relationship('TnBond', foreign_keys='[TnBond.modified_by]', back_populates='tn_application_user_')
     tn_interest_schedule_created_by: Mapped[list['TnInterestSchedule']] = relationship('TnInterestSchedule', foreign_keys='[TnInterestSchedule.created_by]', back_populates='tn_application_user')
     tn_interest_schedule_modified_by: Mapped[list['TnInterestSchedule']] = relationship('TnInterestSchedule', foreign_keys='[TnInterestSchedule.modified_by]', back_populates='tn_application_user_')
+    tn_interest_schedule_superadmin_approved_by: Mapped[list['TnInterestSchedule']] = relationship('TnInterestSchedule', foreign_keys='[TnInterestSchedule.superadmin_approved_by]', back_populates='tn_application_user1')
+    tn_interest_schedule_superadmin_rejected_by: Mapped[list['TnInterestSchedule']] = relationship('TnInterestSchedule', foreign_keys='[TnInterestSchedule.superadmin_rejected_by]', back_populates='tn_application_user2')
     tn_investor_payments_created_by: Mapped[list['TnInvestorPayments']] = relationship('TnInvestorPayments', foreign_keys='[TnInvestorPayments.created_by]', back_populates='tn_application_user')
     tn_investor_payments_modified_by: Mapped[list['TnInvestorPayments']] = relationship('TnInvestorPayments', foreign_keys='[TnInvestorPayments.modified_by]', back_populates='tn_application_user_')
     tn_preclose_request_approved_by: Mapped[list['TnPrecloseRequest']] = relationship('TnPrecloseRequest', foreign_keys='[TnPrecloseRequest.approved_by]', back_populates='tn_application_user')
@@ -269,9 +291,39 @@ class TnApplicationUser(Base):
     tn_settlement_created_by: Mapped[list['TnSettlement']] = relationship('TnSettlement', foreign_keys='[TnSettlement.created_by]', back_populates='tn_application_user_')
     tn_settlement_modified_by: Mapped[list['TnSettlement']] = relationship('TnSettlement', foreign_keys='[TnSettlement.modified_by]', back_populates='tn_application_user1')
     tn_settlement_paid_by: Mapped[list['TnSettlement']] = relationship('TnSettlement', foreign_keys='[TnSettlement.paid_by]', back_populates='tn_application_user2')
+    tn_settlement_superadmin_approved_by: Mapped[list['TnSettlement']] = relationship('TnSettlement', foreign_keys='[TnSettlement.superadmin_approved_by]', back_populates='tn_application_user3')
+    tn_settlement_superadmin_rejected_by: Mapped[list['TnSettlement']] = relationship('TnSettlement', foreign_keys='[TnSettlement.superadmin_rejected_by]', back_populates='tn_application_user4')
     tn_tenure_extension_request_approved_by: Mapped[list['TnTenureExtensionRequest']] = relationship('TnTenureExtensionRequest', foreign_keys='[TnTenureExtensionRequest.approved_by]', back_populates='tn_application_user')
     tn_tenure_extension_request_created_by: Mapped[list['TnTenureExtensionRequest']] = relationship('TnTenureExtensionRequest', foreign_keys='[TnTenureExtensionRequest.created_by]', back_populates='tn_application_user_')
     tn_tenure_extension_request_modified_by: Mapped[list['TnTenureExtensionRequest']] = relationship('TnTenureExtensionRequest', foreign_keys='[TnTenureExtensionRequest.modified_by]', back_populates='tn_application_user1')
+
+
+class TnApplicationActivityLog(Base):
+    __tablename__ = 'tn_application_activity_log'
+    __table_args__ = (
+        CheckConstraint("activity_category::text = ANY (ARRAY['ADMIN'::character varying, 'INVESTOR'::character varying, 'SUPER_ADMIN'::character varying]::text[])", name='chk_activity_log_category'),
+        ForeignKeyConstraint(['performed_by_user_id'], ['tn_application_user.id'], name='fk_activity_log_performed_by_user'),
+        ForeignKeyConstraint(['user_id'], ['tn_application_user.id'], name='fk_activity_log_user'),
+        PrimaryKeyConstraint('id', name='pk_tn_application_activity_log_id'),
+        Index('idx_app_activity_category_date', 'activity_category', 'activity_date'),
+        Index('idx_app_activity_module', 'module_name'),
+        Index('idx_app_activity_performed_by', 'performed_by_user_id'),
+        Index('idx_app_activity_user', 'user_id'),
+        Index('idx_app_activity_user_business_id', 'user_business_id')
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    performed_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    activity_category: Mapped[str] = mapped_column(String(30), nullable=False)
+    module_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    activity_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    activity_description: Mapped[str] = mapped_column(String(500), nullable=False)
+    activity_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    user_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    user_business_id: Mapped[Optional[str]] = mapped_column(String(100))
+
+    performed_by_user: Mapped['TnApplicationUser'] = relationship('TnApplicationUser', foreign_keys=[performed_by_user_id], back_populates='tn_application_activity_log_performed_by_user')
+    user: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[user_id], back_populates='tn_application_activity_log_user')
 
 
 class TnInvestorRegistration(Base):
@@ -526,6 +578,8 @@ class TnInterestSchedule(Base):
         ForeignKeyConstraint(['investment_id'], ['tn_investment.id'], name='fk_tn_interest_schedule_investmen'),
         ForeignKeyConstraint(['modified_by'], ['tn_application_user.id'], name='fk_tn_interest_schedule_modified_by'),
         ForeignKeyConstraint(['payment_status_id'], ['master_payment_status.id'], name='fk_tn_interest_schedule_payment_status'),
+        ForeignKeyConstraint(['superadmin_approved_by'], ['tn_application_user.id'], name='fk_interest_superadmin_approved_by'),
+        ForeignKeyConstraint(['superadmin_rejected_by'], ['tn_application_user.id'], name='fk_interest_superadmin_rejected_by'),
         PrimaryKeyConstraint('id', name='pk_tn_interest_schedule_id'),
         UniqueConstraint('investment_id', 'interest_month', name='uq_tn_interest_schedule')
     )
@@ -543,11 +597,25 @@ class TnInterestSchedule(Base):
     modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     gst_amount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(18, 2))
     net_interest_amount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(18, 2))
+    approved_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    approved_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    rejected_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    rejected_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(500))
+    paid_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    paid_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    superadmin_approved_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    superadmin_approved_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    superadmin_rejected_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    superadmin_rejected_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    superadmin_rejection_reason: Mapped[Optional[str]] = mapped_column(String(500))
 
     tn_application_user: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[created_by], back_populates='tn_interest_schedule_created_by')
     investment: Mapped['TnInvestment'] = relationship('TnInvestment', back_populates='tn_interest_schedule')
     tn_application_user_: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[modified_by], back_populates='tn_interest_schedule_modified_by')
     payment_status: Mapped['MasterPaymentStatus'] = relationship('MasterPaymentStatus', back_populates='tn_interest_schedule')
+    tn_application_user1: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[superadmin_approved_by], back_populates='tn_interest_schedule_superadmin_approved_by')
+    tn_application_user2: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[superadmin_rejected_by], back_populates='tn_interest_schedule_superadmin_rejected_by')
 
 
 class TnInvestorPayments(Base):
@@ -577,6 +645,13 @@ class TnInvestorPayments(Base):
     created_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     modified_by: Mapped[Optional[int]] = mapped_column(BigInteger)
     modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    approved_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    approved_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    rejected_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    rejected_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(500))
+    paid_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    paid_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     tn_application_user: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[created_by], back_populates='tn_investor_payments_created_by')
     investment: Mapped['TnInvestment'] = relationship('TnInvestment', back_populates='tn_investor_payments')
@@ -627,6 +702,8 @@ class TnSettlement(Base):
         ForeignKeyConstraint(['modified_by'], ['tn_application_user.id'], name='fk_tn_settlement_modified_by'),
         ForeignKeyConstraint(['paid_by'], ['tn_application_user.id'], name='fk_tn_settlement_paid_by'),
         ForeignKeyConstraint(['settlement_status_id'], ['master_settlement_status.id'], name='fk_tn_settlement_status'),
+        ForeignKeyConstraint(['superadmin_approved_by'], ['tn_application_user.id'], name='fk_settlement_superadmin_approved_by'),
+        ForeignKeyConstraint(['superadmin_rejected_by'], ['tn_application_user.id'], name='fk_settlement_superadmin_rejected_by'),
         PrimaryKeyConstraint('id', name='pk_tn_settlement_id')
     )
 
@@ -648,6 +725,11 @@ class TnSettlement(Base):
     modified_by: Mapped[Optional[int]] = mapped_column(BigInteger)
     modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     gst_amount: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(18, 2), server_default=text('0'))
+    superadmin_approved_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    superadmin_approved_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    superadmin_rejected_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    superadmin_rejected_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    superadmin_rejection_reason: Mapped[Optional[str]] = mapped_column(String(500))
 
     tn_application_user: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[approved_by], back_populates='tn_settlement_approved_by')
     tn_application_user_: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[created_by], back_populates='tn_settlement_created_by')
@@ -655,6 +737,8 @@ class TnSettlement(Base):
     tn_application_user1: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[modified_by], back_populates='tn_settlement_modified_by')
     tn_application_user2: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[paid_by], back_populates='tn_settlement_paid_by')
     settlement_status: Mapped['MasterSettlementStatus'] = relationship('MasterSettlementStatus', back_populates='tn_settlement')
+    tn_application_user3: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[superadmin_approved_by], back_populates='tn_settlement_superadmin_approved_by')
+    tn_application_user4: Mapped[Optional['TnApplicationUser']] = relationship('TnApplicationUser', foreign_keys=[superadmin_rejected_by], back_populates='tn_settlement_superadmin_rejected_by')
 
 
 class TnTenureExtensionRequest(Base):

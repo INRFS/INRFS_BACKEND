@@ -19,6 +19,8 @@ from app.schemas.auth_schema import (
     StaffRegisterRequest,
     AdminLoginRequest,
     SuperAdminLoginRequest,
+    SendEmailOtpRequest,
+    VerifyEmailOtpRequest,
     TokenResponse,
     UserResponse,
 )
@@ -31,11 +33,44 @@ from app.services.auth_service import (
     superadmin_login,
 )
 
+from app.services.email_otp_service import (
+    send_email_otp,
+    verify_email_otp,
+)
+
 
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
+
+
+@router.post(
+    "/email/send-otp",
+)
+def send_email_otp_api(
+    data: SendEmailOtpRequest,
+    db: Session = Depends(get_db),
+):
+    return send_email_otp(
+        db=db,
+        email=str(data.email),
+        name=data.name,
+    )
+
+
+@router.post(
+    "/email/verify-otp",
+)
+def verify_email_otp_api(
+    data: VerifyEmailOtpRequest,
+    db: Session = Depends(get_db),
+):
+    return verify_email_otp(
+        db=db,
+        email=str(data.email),
+        otp=data.otp,
+    )
 
 
 @router.post(
