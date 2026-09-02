@@ -151,6 +151,27 @@ def require_admin_or_superadmin(
     return current_user
 
 
+def require_admin(
+    current_user=Depends(
+        get_current_user
+    ),
+):
+    role_name = (
+        current_user.role.role_name
+        if current_user.role
+        else ""
+    )
+
+    if role_name.upper() != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    return current_user
+
+
+
 def require_investor(
     current_user=Depends(
         get_current_user

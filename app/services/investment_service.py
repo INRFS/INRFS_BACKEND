@@ -793,11 +793,8 @@ def request_tenure_extension(
     investment = (
         db.query(TnInvestment)
         .filter(
-            TnInvestment.id ==
-                investment_id,
-            TnInvestment
-                .investor_registration_id
-                == investor.id,
+            TnInvestment.id == investment_id,
+            TnInvestment.investor_registration_id == investor.id,
         )
         .first()
     )
@@ -817,67 +814,27 @@ def request_tenure_extension(
         ],
     )
 
-    if (
-        investment.investment_status_id
-        != active_status_id
-    ):
+    if investment.investment_status_id != active_status_id:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Tenure extension can be "
-                "requested only for active "
-                "investments."
+                "Tenure extension can be requested only for active investments."
             ),
         )
 
-    existing_request = (
-        db.query(TnTenureExtensionRequest)
-        .filter(
-            TnTenureExtensionRequest
-                .investment_id
-                == investment.id,
-            TnTenureExtensionRequest
-                .request_status_id
-                ==
-                get_request_status_id(
-                    db,
-                    [
-                        "PENDING",
-                        "PENDING APPROVAL",
-                        "SUBMITTED",
-                    ],
-                ),
-        )
-        .first()
-    )
+    extension_months = int(extension_months)
 
-    if existing_request:
+    if extension_months <= 0:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "A tenure extension request "
-                "is already pending."
-            ),
+            detail="Invalid tenure extension.",
         )
-
-    current_tenure = get_tenure(
-        db,
-        investment.tenure_id,
-    )
-
-    requested_total_months = (
-        current_tenure.tenure_months
-        + extension_months
-    )
 
     requested_tenure = (
         db.query(MasterInvestmentTenure)
         .filter(
-            MasterInvestmentTenure
-                .tenure_months
-                == requested_total_months,
-            MasterInvestmentTenure
-                .is_active.is_(True),
+            MasterInvestmentTenure.tenure_months == extension_months,
+            MasterInvestmentTenure.is_active.is_(True),
         )
         .first()
     )
@@ -886,68 +843,75 @@ def request_tenure_extension(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Investment tenure for "
-                f"{requested_total_months} months "
-                f"is not configured."
+                f"Investment tenure extension of {extension_months} months "
+                "is not configured."
             ),
         )
 
-    pending_request_status_id = (
-        get_request_status_id(
-            db,
-            [
-                "PENDING",
-                "PENDING APPROVAL",
-                "SUBMITTED",
-            ],
+    try:
+        result = db.execute(
+            text(
+                """
+                SELECT *
+                FROM public.fn_request_tenure_extension(
+                    :p_investment_id,
+                    :p_investor_registration_id,
+                    :p_requested_tenure_id,
+                    :p_remarks
+                )
+                """
+            ),
+            {
+                "p_investment_id": investment.investment_id,
+                "p_investor_registration_id": investor.id,
+                "p_requested_tenure_id": requested_tenure.id,
+                "p_remarks": remarks,
+            },
         )
-    )
 
-    request = TnTenureExtensionRequest(
-        investment_id=investment.id,
-        current_tenure_id=
-            current_tenure.id,
-        requested_tenure_id=
-            requested_tenure.id,
-        request_status_id=
-            pending_request_status_id,
-        requested_date=datetime.now(),
-        remarks=remarks,
-        created_by=user_id,
-    )
+        row = result.fetchone()
 
-    db.add(request)
-    db.commit()
-    db.refresh(request)
+        if not row:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="No response received from tenure extension function.",
+            )
 
-    return {
-        "success": True,
-        "message": (
-            "Tenure extension request "
-            "submitted successfully."
-        ),
-        "data": {
-            "id": request.id,
-            "investment_id":
-                request.investment_id,
-            "current_tenure_id":
-                request.current_tenure_id,
-            "current_tenure_months":
-                current_tenure.tenure_months,
-            "requested_tenure_id":
-                request.requested_tenure_id,
-            "requested_tenure_months":
-                requested_tenure.tenure_months,
-            "extension_months":
-                extension_months,
-            "request_status_id":
-                request.request_status_id,
-            "requested_date":
-                request.requested_date,
-            "remarks":
-                request.remarks,
-        },
-    }
+        success = bool(row[0])
+        message = str(row[1])
+
+        if not success:
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=message,
+            )
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": message,
+            "data": {
+                "investment_id": investment.id,
+                "investment_code": investment.investment_id,
+                "investor_registration_id": investor.id,
+                "current_tenure_id": investment.tenure_id,
+                "requested_tenure_id": requested_tenure.id,
+                "requested_tenure_months": requested_tenure.tenure_months,
+                "extension_months": extension_months,
+                "remarks": remarks,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to submit tenure extension request: {exc}",
+        ) from exc
 
 
 def request_preclose(

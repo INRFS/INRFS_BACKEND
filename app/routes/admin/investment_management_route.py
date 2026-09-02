@@ -44,7 +44,6 @@ from app.services.admin.investment_management_service import (
     reject_investment,
     reject_monthly_interest,
     reject_tenure_extension,
-    submit_tenure_extension,
 
 
 
@@ -366,35 +365,83 @@ def get_extension_details(
 
 
 @router.put(
-    "/tenure-extensions/{request_id}/submit",
+    "/tenure-extensions/{request_id}/approve",
     response_model=InvestmentActionResponse,
 )
-def submit_extension(
+def approve_extension(
     request_id: int,
     request: TenureExtensionActionRequest,
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    submitted_by = getattr(current_user, "id", None)
+    approved_by = getattr(current_user, "id", None)
 
-    if not submitted_by:
+    if not approved_by:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Admin user ID not found",
         )
 
     try:
-        return submit_tenure_extension(
+        return approve_tenure_extension(
             db=db,
             request_id=request_id,
-            submitted_by=submitted_by,
+            approved_by=approved_by,
             remarks=request.remarks,
         )
 
     except ValueError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+
+@router.put(
+    "/tenure-extensions/{request_id}/reject",
+    response_model=InvestmentActionResponse,
+)
+def reject_extension(
+    request_id: int,
+    request: TenureExtensionActionRequest,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    rejected_by = getattr(current_user, "id", None)
+
+    if not rejected_by:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin user ID not found",
+        )
+
+    try:
+        return reject_tenure_extension(
+            db=db,
+            request_id=request_id,
+            rejected_by=rejected_by,
+            remarks=request.remarks,
+        )
+
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
 
