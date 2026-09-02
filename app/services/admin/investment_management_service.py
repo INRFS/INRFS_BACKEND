@@ -475,41 +475,6 @@ def get_tenure_extension_details(
     }
 
 
-def submit_tenure_extension(
-    db: Session,
-    request_id: int,
-    submitted_by: int,
-    remarks: Optional[str] = None,
-):
-    result = db.execute(
-        text(
-            """
-            SELECT *
-            FROM public.fn_admin_submit_tenure_extension(
-                :p_request_id,
-                :p_submitted_by,
-                :p_remarks
-            )
-            """
-        ),
-        {
-            "p_request_id": request_id,
-            "p_submitted_by": submitted_by,
-            "p_remarks": remarks,
-        },
-    )
-
-    data = _row(result)
-
-    db.commit()
-
-    return {
-        "success": True,
-        "message": "Tenure extension request sent to Super Admin successfully",
-        "data": data,
-    }
-
-
 def approve_tenure_extension(
     db: Session,
     request_id: int,
@@ -536,11 +501,33 @@ def approve_tenure_extension(
 
     data = _row(result)
 
+    if not data:
+        db.rollback()
+        return {
+            "success": False,
+            "message": "Unable to approve tenure extension.",
+            "data": None,
+        }
+
+    if data.get("success") is False:
+        db.rollback()
+        return {
+            "success": False,
+            "message": data.get(
+                "message",
+                "Tenure extension approval failed.",
+            ),
+            "data": data,
+        }
+
     db.commit()
 
     return {
         "success": True,
-        "message": "Tenure extension approved successfully",
+        "message": data.get(
+            "message",
+            "Tenure extension approved successfully.",
+        ),
         "data": data,
     }
 
@@ -551,6 +538,11 @@ def reject_tenure_extension(
     rejected_by: int,
     remarks: Optional[str] = None,
 ):
+    reason = (remarks or "").strip()
+
+    if not reason:
+        raise ValueError("Rejection reason is required")
+
     result = db.execute(
         text(
             """
@@ -565,19 +557,43 @@ def reject_tenure_extension(
         {
             "p_request_id": request_id,
             "p_rejected_by": rejected_by,
-            "p_remarks": remarks,
+            "p_remarks": reason,
         },
     )
 
     data = _row(result)
 
+    if not data:
+        db.rollback()
+        return {
+            "success": False,
+            "message": "Unable to reject tenure extension.",
+            "data": None,
+        }
+
+    if data.get("success") is False:
+        db.rollback()
+        return {
+            "success": False,
+            "message": data.get(
+                "message",
+                "Tenure extension rejection failed.",
+            ),
+            "data": data,
+        }
+
     db.commit()
 
     return {
         "success": True,
-        "message": "Tenure extension rejected successfully",
+        "message": data.get(
+            "message",
+            "Tenure extension request rejected successfully.",
+        ),
         "data": data,
     }
+
+
 
 
 def get_monthly_interest(
