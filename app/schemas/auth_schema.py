@@ -126,6 +126,24 @@ class SuperAdminLoginRequest(BaseModel):
     )
 
 
+class SendEmailOtpRequest(BaseModel):
+    email: EmailStr
+    name: str = Field(
+        default="User",
+        min_length=1,
+        max_length=255,
+    )
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+    )
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -134,6 +152,38 @@ class TokenResponse(BaseModel):
     full_name: str
     role: str
     branch_id: Optional[int] = None
+
+
+
+
+
+class ForgotPasswordSendOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordVerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+    )
+
+
+class ForgotPasswordResetRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+    )
+
+
 
 
 class UserResponse(BaseModel):

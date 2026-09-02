@@ -28,6 +28,12 @@ from app.utils.auth_utils import (
     create_access_token,
 )
 
+from app.services.email_service import send_welcome_email
+from app.services.email_otp_service import (
+    is_email_verified,
+    clear_email_otp,
+)
+
 
 def get_role(
     db: Session,
@@ -198,6 +204,16 @@ def register_investor(
             email=data.email,
         )
 
+        if data.email:
+            if not is_email_verified(
+                db=db,
+                email=str(data.email),
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please verify your email with OTP before registration.",
+                )
+
         role = get_role(
             db,
             "INVESTOR",
@@ -276,6 +292,21 @@ def register_investor(
 
         db.refresh(user)
         db.refresh(investor)
+
+        if data.email:
+            clear_email_otp(
+                db=db,
+                email=str(data.email),
+            )
+            db.commit()
+
+        send_welcome_email(
+            email=user.email,
+            name=user.full_name,
+            username=user.username,
+            password=data.password,
+            role=role.role_name,
+        )
 
         return user, investor
 
@@ -382,6 +413,14 @@ def register_staff(
         db.commit()
 
         db.refresh(user)
+
+        send_welcome_email(
+            email=user.email,
+            name=user.full_name,
+            username=user.username,
+            password=data.password,
+            role=role.role_name,
+        )
 
         return user
 
